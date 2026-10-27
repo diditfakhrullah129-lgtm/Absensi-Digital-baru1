@@ -1,0 +1,6126 @@
+// KONFIGURASI SPREADSHEET
+const SPREADSHEET_ID = '1qZweERWshGgfT4rWR2Bcr4LktXBeg9eU0QbWXQQB9ZQ';
+const PARENT_FOLDER_ID = '1bdvfIkdFdzVM7cOZNStwYusVvx_oa8Kq';
+
+// Fungsi untuk mendapatkan spreadsheet
+function getSpreadsheet() {
+  return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+
+// ====================================
+// MAIN ENTRY POINT
+// ====================================
+function doGet(e) {
+  // Mode scanner: halaman kamera terpisah
+  if (e && e.parameter && e.parameter.mode === 'scanner') {
+    return HtmlService.createHtmlOutput(getScannerPageHtml())
+      .setTitle('Scan QR - E-Absensi')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
+
+  // Mode laporan sholat: halaman laporan terpisah
+  if (e && e.parameter && e.parameter.page === 'laporan_sholat') {
+    return HtmlService.createHtmlOutput(getLaporanSholatPageHtml())
+      .setTitle('Laporan Absensi Sholat Bulanan')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
+
+  // Halaman utama
+  const template = HtmlService.createTemplateFromFile('index');
+  return template.evaluate()
+    .setTitle('Absensi Siswa Digital')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setFaviconUrl('https://if.polibatam.ac.id/pamerin/uploads/pbl/3312011063/3312011063_gambar1_20220710.png' );
+}
+
+// Fungsi untuk mendapatkan URL deployment (dipanggil dari frontend)
+function getDeploymentUrl() {
+  return ScriptApp.getService().getUrl();
+}
+
+// HTML halaman scanner kamera (disajikan dari URL GAS yang sama)
+function getScannerPageHtml() {
+  return '<!DOCTYPE html>' +
+'<html lang="id">' +
+'<head>' +
+'<meta charset="UTF-8">' +
+'<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+'<title>Scan QR - E-Absensi</title>' +
+'<style>' +
+'* { margin:0; padding:0; box-sizing:border-box; }' +
+'body { background:#0f172a; color:white; font-family:"Segoe UI",sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; padding:20px; gap:16px; }' +
+'h2 { font-size:15px; font-weight:700; color:#e2e8f0; letter-spacing:1px; }' +
+'#videoWrap { position:relative; width:100%; max-width:420px; }' +
+'video { width:100%; border-radius:16px; display:block; background:#000; min-height:240px; }' +
+'canvas { display:none; }' +
+'.overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }' +
+'.box { width:200px; height:200px; position:relative; }' +
+'.corner { position:absolute; width:24px; height:24px; border-color:#6366f1; border-style:solid; }' +
+'.tl { top:0; left:0; border-width:4px 0 0 4px; border-radius:6px 0 0 0; }' +
+'.tr { top:0; right:0; border-width:4px 4px 0 0; border-radius:0 6px 0 0; }' +
+'.bl { bottom:0; left:0; border-width:0 0 4px 4px; border-radius:0 0 0 6px; }' +
+'.br { bottom:0; right:0; border-width:0 4px 4px 0; border-radius:0 0 6px 0; }' +
+'.scanline { position:absolute; left:6px; right:6px; height:2px; background:linear-gradient(90deg,transparent,#6366f1,transparent); top:10px; animation:scan 2s linear infinite; }' +
+'@keyframes scan { 0%{top:10px;opacity:1} 100%{top:190px;opacity:0} }' +
+'#status { font-size:13px; color:#94a3b8; text-align:center; max-width:340px; min-height:40px; line-height:1.6; padding:0 10px; }' +
+'#status.ok { color:#4ade80; font-weight:700; font-size:16px; }' +
+'#status.err { color:#f87171; }' +
+'.btns { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; width:100%; max-width:420px; }' +
+'button { flex:1; min-width:110px; background:#4f46e5; color:white; border:none; padding:12px 16px; border-radius:12px; font-size:13px; font-weight:700; cursor:pointer; transition:background .2s; }' +
+'button:hover { background:#4338ca; }' +
+'button.sec { background:#1e293b; border:1px solid #334155; }' +
+'button.sec:hover { background:#334155; }' +
+'#loading { color:#64748b; font-size:13px; text-align:center; }' +
+'.spinner { width:36px; height:36px; border:3px solid #1e293b; border-top:3px solid #6366f1; border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 14px; }' +
+'@keyframes spin { to { transform:rotate(360deg); } }' +
+'</style>' +
+'</head>' +
+'<body>' +
+'<h2>&#128247; SCAN QR ABSENSI</h2>' +
+'<div id="loading"><div class="spinner"></div>Memulai kamera...</div>' +
+'<div id="videoWrap" style="display:none">' +
+'  <video id="video" autoplay playsinline muted></video>' +
+'  <canvas id="canvas"></canvas>' +
+'  <div class="overlay"><div class="box">' +
+'    <div class="corner tl"></div><div class="corner tr"></div>' +
+'    <div class="corner bl"></div><div class="corner br"></div>' +
+'    <div class="scanline"></div>' +
+'  </div></div>' +
+'</div>' +
+'<div id="status">Arahkan QR code ke dalam kotak</div>' +
+'<div class="btns">' +
+'  <button onclick="switchCam()">&#128260; Ganti Kamera</button>' +
+'  <button class="sec" onclick="window.close()">&#10005; Tutup</button>' +
+'</div>' +
+'<script>' +
+'var stream=null,facing="environment",loopId=null,lastScan=0;' +
+'var video=document.getElementById("video"),canvas=document.getElementById("canvas"),ctx=canvas.getContext("2d");' +
+'var status=document.getElementById("status"),loading=document.getElementById("loading"),wrap=document.getElementById("videoWrap");' +
+'var LS_KEY="gas_qr_result";' +
+'async function startCam(f){' +
+'  try{' +
+'    if(stream)stream.getTracks().forEach(function(t){t.stop();});' +
+'    if(loopId){cancelAnimationFrame(loopId);clearInterval(loopId);loopId=null;}' +
+'    loading.style.display="block";wrap.style.display="none";' +
+'    status.className="";status.textContent="Memulai kamera...";' +
+'    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:f==="environment"?{ideal:"environment"}:"user",width:{ideal:1280},height:{ideal:720}}});' +
+'    video.srcObject=stream;' +
+'    await new Promise(function(res){video.onloadedmetadata=function(){video.play();res();};});' +
+'    loading.style.display="none";wrap.style.display="block";' +
+'    status.textContent="Arahkan QR code ke dalam kotak";' +
+'    beginScan();' +
+'  }catch(e){' +
+'    loading.style.display="none";status.className="err";' +
+'    status.innerHTML="Kamera gagal: "+e.name+"<br><small>"+e.message+"</small>";' +
+'  }' +
+'}' +
+'function switchCam(){facing=facing==="environment"?"user":"environment";startCam(facing);}' +
+'function beginScan(){' +
+'  if("BarcodeDetector" in window){' +
+'    var detector=new BarcodeDetector({formats:["qr_code"]});' +
+'    var loop=async function(){' +
+'      if(video.readyState===video.HAVE_ENOUGH_DATA){' +
+'        canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.drawImage(video,0,0);' +
+'        try{var codes=await detector.detect(canvas);if(codes.length>0){var now=Date.now();if(now-lastScan>3000){lastScan=now;handleResult(codes[0].rawValue);}}}catch(e){}' +
+'      }' +
+'      loopId=requestAnimationFrame(loop);' +
+'    };' +
+'    loopId=requestAnimationFrame(loop);' +
+'  }else{' +
+'    var s=document.createElement("script");' +
+'    s.src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";' +
+'    s.onload=function(){' +
+'      loopId=setInterval(function(){' +
+'        if(video.readyState!==video.HAVE_ENOUGH_DATA)return;' +
+'        canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.drawImage(video,0,0);' +
+'        var d=ctx.getImageData(0,0,canvas.width,canvas.height);' +
+'        var c=jsQR(d.data,d.width,d.height);' +
+'        if(c&&c.data){var now=Date.now();if(now-lastScan>3000){lastScan=now;handleResult(c.data);}}' +
+'      },400);' +
+'    };' +
+'    document.head.appendChild(s);' +
+'  }' +
+'}' +
+'function handleResult(text){' +
+'  if(!text)return;' +
+'  if(loopId){cancelAnimationFrame(loopId);clearInterval(loopId);loopId=null;}' +
+'  if(stream)stream.getTracks().forEach(function(t){t.stop();});' +
+'  status.className="ok";status.textContent="QR Terdeteksi! Menyimpan...";' +
+'  try{' +
+'    localStorage.setItem(LS_KEY,JSON.stringify({nisn:text,ts:Date.now()}));' +
+'    status.textContent="Berhasil! Menutup tab...";' +
+'  }catch(e){status.className="err";status.textContent="Gagal simpan: "+e.message;}' +
+'  setTimeout(function(){window.close();},1500);' +
+'}' +
+'startCam(facing);' +
+'<\/script>' +
+'</body></html>';
+}
+
+// ====================================
+// AUTENTIKASI & SESSION
+// ====================================
+function login(username, password, nisn) {
+  try {
+    const ss = getSpreadsheet();
+    const usersSheet = ss.getSheetByName('users');
+    const siswaSheet = ss.getSheetByName('siswa');
+
+    let userFound = null;
+
+    // -------------------------------------------
+    // 1. LOGIKA CEK KREDENSIAL (SAMA SEPERTI LAMA)
+    // -------------------------------------------
+    
+    // A. Login SISWA (Pakai NISN)
+    if (nisn) {
+      const siswaData = siswaSheet.getDataRange().getValues();
+      for (let i = 1; i < siswaData.length; i++) {
+        if (String(siswaData[i][1]) === String(nisn)) { 
+          userFound = {
+            role: 'siswa',
+            identifier: siswaData[i][1], // NISN
+            nama: siswaData[i][0],
+            kelas: siswaData[i][8],
+            foto: siswaData[i][10] || ''
+          };
+          break;
+        }
+      }
+      if (!userFound) return { success: false, message: 'NISN tidak ditemukan' };
+    } 
+    // B. Login ADMIN & GURU (Username/Pass)
+    else {
+      const userData = usersSheet.getDataRange().getValues();
+      for (let i = 1; i < userData.length; i++) {
+        if (userData[i][0] == username && userData[i][1] == password) {
+          userFound = {
+            role: userData[i][2],
+            identifier: userData[i][0], // Username
+            nama: userData[i][0],       // Gunakan username sbg nama
+            kelas: userData[i][3] || "" 
+          };
+          break;
+        }
+      }
+      if (!userFound) return { success: false, message: 'Username atau password salah' };
+    }
+
+    // -------------------------------------------
+    // 2. GENERATE & SIMPAN TOKEN (KEAMANAN BARU)
+    // -------------------------------------------
+    
+    // Buat Token Unik (UUID)
+    const token = Utilities.getUuid();
+    
+    // Set Waktu Expired (90 HARI). Dibuat jauh lebih panjang dari 24 jam
+    // supaya user tidak perlu login ulang tiap hari, TAPI tetap ada batas —
+    // supaya sesi lama yang "nyangkut" (misal dari HP yang di-setup/di-clone,
+    // atau lupa logout) tidak bertahan selamanya. Ditambah lagi sekarang ada
+    // konfirmasi "Lanjutkan sebagai [Nama]?" di sisi frontend sebagai lapis
+    // pengaman tambahan supaya tidak otomatis nyasar ke akun orang lain.
+    const expiry = new Date();
+    expiry.setTime(expiry.getTime() + (90 * 24 * 60 * 60 * 1000)); 
+
+    // Siapkan Sheet Sessions
+    let sessionSheet = ss.getSheetByName('sessions');
+    if (!sessionSheet) {
+      sessionSheet = ss.insertSheet('sessions');
+      sessionSheet.appendRow(['Token', 'Identifier', 'Role', 'Expiry']);
+      // Format kolom tanggal agar mudah dibaca (Opsional)
+      sessionSheet.getRange("D:D").setNumberFormat("yyyy-mm-dd hh:mm:ss");
+    }
+
+    // Simpan data sesi baru ke Sheet
+    sessionSheet.appendRow([
+      token, 
+      userFound.identifier, 
+      userFound.role, 
+      expiry
+    ]);
+
+    // -------------------------------------------
+    // 3. KEMBALIKAN TOKEN KE FRONTEND
+    // -------------------------------------------
+    return {
+      success: true,
+      token: token,      // Token dikirim ke frontend
+      role: userFound.role,
+      username: userFound.identifier,
+      nama: userFound.nama,
+      kelas: userFound.kelas,
+      nisn: (userFound.role === 'siswa') ? userFound.identifier : null,
+      foto: (userFound.role === 'siswa') ? (userFound.foto || '') : null
+    };
+
+  } catch (error) {
+    return { success: false, message: "Login Error: " + error.toString() };
+  }
+}
+
+
+function verifyUser(token, requiredRole) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID); // Pastikan ID Spreadsheet global terbaca
+  const sheet = ss.getSheetByName('sessions');
+  const data = sheet.getDataRange().getValues();
+  const now = new Date();
+
+  for (let i = 1; i < data.length; i++) {
+    // data[i][0] = Token, data[i][2] = Role, data[i][3] = Expiry
+    if (data[i][0] === token) {
+      // Cek apakah token expired (misal 24 jam)
+      if (data[i][3] instanceof Date && data[i][3] > now) {
+        // Cek Role
+        if (requiredRole && data[i][2] !== requiredRole && data[i][2] !== 'admin') {
+           // Admin biasanya boleh akses semua, jika role user != required, tolak
+           throw new Error("Akses Ditolak: Anda tidak memiliki izin.");
+        }
+        return true; // Valid
+      } else {
+        throw new Error("Sesi berakhir. Silakan login ulang.");
+      }
+    }
+  }
+  throw new Error("Token tidak valid atau tidak ditemukan.");
+}
+
+// Menghapus token sesi dari sheet 'sessions' saat user menekan Logout.
+// Karena expiry token sekarang dibuat sangat panjang (10 tahun), penghapusan
+// baris ini di sisi server-lah yang menjadi SATU-SATUNYA cara sesi berakhir
+// (selain browser/localStorage-nya dihapus manual).
+function logoutUser(token) {
+  try {
+    if (!token) return { success: true };
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('sessions');
+    if (!sheet) return { success: true };
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === token) {
+        sheet.deleteRow(i + 1); // +1 karena getValues() 0-based, sheet 1-based
+        break;
+      }
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, message: "Logout Error: " + error.toString() };
+  }
+}
+
+// Mengambil identifier (NISN/username) + role dari token sesi aktif.
+// Dipakai fitur yang butuh tahu "siapa yang login" (misal: siswa isi absensi sholat sendiri).
+function getSessionInfo(token) {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName('sessions');
+  if (!sheet) throw new Error('Sesi tidak ditemukan.');
+  const data = sheet.getDataRange().getValues();
+  const now = new Date();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === token) {
+      if (data[i][3] instanceof Date && data[i][3] > now) {
+        return { identifier: data[i][1], role: data[i][2] };
+      }
+      throw new Error("Sesi berakhir. Silakan login ulang.");
+    }
+  }
+  throw new Error("Token tidak valid atau tidak ditemukan.");
+}
+
+// Ambil folder Drive khusus utk menyimpan foto profil siswa (terpisah dari
+// folder tampilan aplikasi biar rapi).
+function _getOrCreateFotoProfilFolder() {
+  const parent = DriveApp.getFolderById(PARENT_FOLDER_ID);
+  const folderName = 'Foto_Profil_Siswa';
+  const it = parent.getFoldersByName(folderName);
+  if (it.hasNext()) return it.next();
+  return parent.createFolder(folderName);
+}
+
+// Upload foto profil (base64) ke Drive, jadikan bisa dilihat publik, kembalikan URL.
+function _uploadFotoProfilSiswa(base64, mimeType, fileName) {
+  const folder = _getOrCreateFotoProfilFolder();
+  const bytes = Utilities.base64Decode(base64);
+  const blob = Utilities.newBlob(bytes, mimeType || 'image/png', fileName || ('foto_profil_' + Date.now()));
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return 'https://lh3.googleusercontent.com/d/' + file.getId();
+}
+
+// Ambil data profil siswa yang SEDANG LOGIN (identitas diambil dari token,
+// bukan dari input client, supaya siswa tidak bisa lihat data siswa lain).
+function getProfilSiswa(token) {
+  try {
+    const session = getSessionInfo(token);
+    if (session.role !== 'siswa') {
+      return { success: false, message: 'Akses ditolak: fitur ini hanya untuk siswa.' };
+    }
+    const nisn = String(session.identifier).trim();
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('siswa');
+    if (!sheet) return { success: false, message: 'Sheet siswa tidak ditemukan.' };
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][1]).replace(/^'/, '').trim() === nisn) {
+        return {
+          success: true,
+          nama: data[i][0],
+          nisn: nisn,
+          jenisKelamin: data[i][2] || '',
+          tanggalLahir: data[i][3] || '',
+          agama: data[i][4] || '',
+          namaAyah: data[i][5] || '',
+          namaIbu: data[i][6] || '',
+          noHp: data[i][7] || '',
+          kelas: data[i][8] || '',
+          alamat: data[i][9] || '',
+          fotoUrl: data[i][10] || ''
+        };
+      }
+    }
+    return { success: false, message: 'Data siswa tidak ditemukan.' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// Siswa mengubah profilnya SENDIRI: hanya No HP, Alamat & Foto Profil yang
+// boleh diubah siswa — data resmi (Nama, NISN, Kelas, TTL, dll) tetap
+// sepenuhnya dikelola admin/guru lewat menu Data Siswa.
+function updateProfilSiswa(token, form) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    const session = getSessionInfo(token);
+    if (session.role !== 'siswa') {
+      return { success: false, message: 'Akses ditolak: fitur ini hanya untuk siswa.' };
+    }
+    const nisn = String(session.identifier).trim();
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('siswa');
+    if (!sheet) return { success: false, message: 'Sheet siswa tidak ditemukan.' };
+
+    const data = sheet.getDataRange().getValues();
+    let rowIndex = -1;
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][1]).replace(/^'/, '').trim() === nisn) { rowIndex = i + 1; break; }
+    }
+    if (rowIndex === -1) return { success: false, message: 'Data siswa tidak ditemukan.' };
+
+    if (form.noHp !== undefined && form.noHp !== null) {
+      sheet.getRange(rowIndex, 8).setValue(String(form.noHp).trim());
+    }
+    if (form.alamat !== undefined && form.alamat !== null) {
+      sheet.getRange(rowIndex, 10).setValue(String(form.alamat).trim());
+    }
+
+    let fotoUrl = null;
+    if (form.fotoBase64) {
+      fotoUrl = _uploadFotoProfilSiswa(form.fotoBase64, form.fotoMime, form.fotoFileName);
+      sheet.getRange(rowIndex, 11).setValue(fotoUrl);
+    } else if (form.fotoUrlText) {
+      fotoUrl = String(form.fotoUrlText).trim();
+      sheet.getRange(rowIndex, 11).setValue(fotoUrl);
+    }
+
+    return { success: true, message: 'Profil berhasil diperbarui.', fotoUrl: fotoUrl };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ====================================
+// PENGATURAN JENDELA WAKTU ABSEN SHOLAT (dibuat guru/wakel/admin)
+// ====================================
+// Di luar jendela waktu ini, siswa TIDAK BISA mengisi absensi sholat sendiri
+// (submitAbsensiSholatSiswa akan menolak). Guru/admin yang input manual TIDAK
+// terikat aturan ini (mereka tetap bebas koreksi kapan saja).
+
+const DEFAULT_WAKTU_SHOLAT_SETTING = {
+  'Subuh':          { mulai: '04:30', selesai: '05:30' },
+  'Dhuha':          { mulai: '07:00', selesai: '09:00' },
+  'Dzuhur & Ashar': { mulai: '12:00', selesai: '16:30' },
+  'Maghrib':        { mulai: '17:45', selesai: '18:30' },
+  'Isya':           { mulai: '19:00', selesai: '20:00' }
+};
+
+function _getPengaturanWaktuSholatRaw(ss) {
+  const sheet = ss.getSheetByName('konfigurasi');
+  if (!sheet) return DEFAULT_WAKTU_SHOLAT_SETTING;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === 'waktu_sholat_setting') {
+      try {
+        const parsed = JSON.parse(data[i][1]);
+        // Gabung dengan default biar aman kalau ada key yang belum lengkap/rusak
+        return Object.assign({}, DEFAULT_WAKTU_SHOLAT_SETTING, parsed);
+      } catch (e) {
+        return DEFAULT_WAKTU_SHOLAT_SETTING;
+      }
+    }
+  }
+  return DEFAULT_WAKTU_SHOLAT_SETTING;
+}
+
+// Cek apakah SEKARANG masih dalam jendela waktu yang diizinkan utk waktu sholat tertentu.
+function _cekWaktuSholatDibuka(ss, waktuSholat) {
+  const setting = _getPengaturanWaktuSholatRaw(ss);
+  const w = setting[waktuSholat];
+  if (!w) return { diizinkan: true };
+  const nowStr = formatWaktuSheet(new Date(), 'HH:mm'); // ganti baris ini
+  return {
+    diizinkan: (nowStr >= w.mulai && nowStr <= w.selesai),
+    mulai: w.mulai,
+    selesai: w.selesai,
+    sekarang: nowStr
+  };
+}
+
+function _getJendelaWaktuSholatUntukFrontend(ss) {
+  const setting = _getPengaturanWaktuSholatRaw(ss);
+  const nowStr = formatWaktuSheet(new Date(), 'HH:mm'); // ganti baris ini juga
+  const out = {};
+  Object.keys(setting).forEach(w => {
+    const win = setting[w];
+    let status = 'buka';
+    if (nowStr < win.mulai) status = 'belum';
+    else if (nowStr > win.selesai) status = 'selesai';
+    out[w] = { mulai: win.mulai, selesai: win.selesai, sedangDibuka: (status === 'buka'), status };
+  });
+  return out;
+}
+
+// Publik (siapa saja yang sudah login boleh baca) — dipakai utk menampilkan
+// jam buka/tutup absen di halaman siswa & halaman pengaturan guru/admin.
+function getPengaturanWaktuSholat() {
+  try {
+    const ss = getSpreadsheet();
+    return { success: true, data: _getPengaturanWaktuSholatRaw(ss) };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// Guru/wakel/admin mengatur jendela waktu (jam mulai & selesai) per waktu sholat.
+function simpanPengaturanWaktuSholat(token, dataWaktu) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    const session = getSessionInfo(token);
+    if (['admin', 'guru', 'wakel'].indexOf(session.role) === -1) {
+      return { success: false, message: 'Akses ditolak: hanya guru/wali kelas/admin yang bisa mengatur waktu absen sholat.' };
+    }
+
+    const allowedWaktu = Object.keys(DEFAULT_WAKTU_SHOLAT_SETTING);
+    const timeRe = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    const clean = {};
+    for (let idx = 0; idx < allowedWaktu.length; idx++) {
+      const w = allowedWaktu[idx];
+      const item = dataWaktu && dataWaktu[w];
+      if (!item || !timeRe.test(item.mulai) || !timeRe.test(item.selesai)) {
+        return { success: false, message: 'Format jam untuk "' + w + '" tidak valid. Gunakan format HH:MM.' };
+      }
+      if (item.mulai >= item.selesai) {
+        return { success: false, message: 'Jam mulai "' + w + '" harus lebih awal dari jam selesai.' };
+      }
+      clean[w] = { mulai: item.mulai, selesai: item.selesai };
+    }
+
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName('konfigurasi');
+    if (!sheet) {
+      sheet = ss.insertSheet('konfigurasi');
+      sheet.appendRow(['key', 'value', 'keterangan']);
+    }
+    _setKonfigurasiValue(sheet, 'waktu_sholat_setting', JSON.stringify(clean));
+
+    return { success: true, message: 'Pengaturan waktu absen sholat berhasil disimpan.', data: clean };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ====================================
+// SISWA - ABSENSI SHOLAT MANDIRI (isi sendiri oleh siswa)
+// ====================================
+
+// Cek apakah data absensi sholat (tanggal + nisn + waktu) tertentu sedang
+// "terkunci" bagi siswa, yaitu sudah diinput oleh guru/admin (bukan isian
+// mandiri siswa sendiri) dan belum diizinkan ulang oleh guru untuk hari itu.
+// Dipakai oleh submitAbsensiSholatSiswa (enforce) & getAbsensiSholatSiswaHariIni (info ke UI).
+function cekKuncEditSiswaSholat(ss, nisn, tanggal, waktuSholat) {
+  const sheet = ss.getSheetByName('absensi_sholat');
+  if (!sheet) return { terkunci: false };
+  const nisnBersih = String(nisn).replace(/^'/, '').trim();
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (!data[i][0]) continue;
+    const rowDate = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+    if (rowDate !== tanggal) continue;
+    const rowNisn = String(data[i][1]).replace(/^'/, '').trim();
+    if (rowNisn !== nisnBersih) continue;
+    const rowWaktu = String(data[i][4]).trim();
+    if (rowWaktu !== waktuSholat) continue;
+
+    const inputOleh = String(data[i][7] || '');
+    const olehSiswaSendiri = inputOleh.indexOf('Isi Mandiri') !== -1;
+    const flagIzin = data[i][9];
+    const izinDiberikan = flagIzin === true || String(flagIzin).trim().toUpperCase() === 'TRUE' || String(flagIzin).trim() === '1';
+
+    return {
+      terkunci: !olehSiswaSendiri && !izinDiberikan,
+      rowIndex: i + 1,
+      inputOleh: inputOleh,
+      izinEdit: izinDiberikan
+    };
+  }
+  return { terkunci: false }; // belum ada data sama sekali -> boleh diisi bebas
+}
+
+// Dipanggil oleh guru/wakel/admin untuk mengizinkan SATU KALI perubahan oleh
+// siswa atas absensi sholat miliknya yang sudah terlanjur diinput guru/admin.
+// Izin ini otomatis "habis" lagi setelah siswa memakainya (baris lama dihapus &
+// ditulis ulang oleh submitAbsensiSholat tanpa membawa flag izin ke baris baru).
+function izinkanEditSiswaSholat(token, rowIndex, nisn) {
+  try {
+    const session = getSessionInfo(token);
+    if (['guru', 'wakel', 'admin'].indexOf(session.role) === -1) {
+      return { success: false, message: 'Akses ditolak: hanya guru/wali kelas/admin yang bisa memberi izin.' };
+    }
+
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('absensi_sholat');
+    if (!sheet) return { success: false, message: 'Sheet absensi_sholat tidak ditemukan.' };
+
+    const rIndex = parseInt(rowIndex, 10);
+    if (!rIndex || rIndex < 2) return { success: false, message: 'Baris data tidak valid.' };
+    const lastRow = sheet.getLastRow();
+    if (rIndex > lastRow) return { success: false, message: 'Baris data sudah tidak ada (mungkin sudah dihapus/berubah). Silakan muat ulang.' };
+
+    const rowNisn = String(sheet.getRange(rIndex, 2).getValue()).replace(/^'/, '').trim();
+    const nisnBersih = String(nisn).replace(/^'/, '').trim();
+    if (rowNisn !== nisnBersih) {
+      return { success: false, message: 'Data tidak cocok (mungkin urutan baris berubah). Silakan tutup dan buka kembali, lalu coba lagi.' };
+    }
+
+    sheet.getRange(rIndex, 10).setValue(true);
+    return { success: true, message: 'Siswa sekarang diizinkan mengubah absensi ini (berlaku sekali).' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// Siswa isi absensi sholat sendiri untuk HARI INI.
+// Ditulis ke sheet 'absensi_sholat' yang sama dengan input guru/admin (via submitAbsensiSholat),
+// sehingga otomatis tersinkron: kalau guru/admin input ulang untuk waktu sholat yang sama,
+// data isian mandiri siswa ini akan ditimpa (perilaku dedup yang sudah ada).
+function submitAbsensiSholatSiswa(token, waktuSholat, status, keterangan) {
+  try {
+    const session = getSessionInfo(token);
+    if (session.role !== 'siswa') {
+      return { success: false, message: 'Akses ditolak: fitur ini hanya untuk siswa.' };
+    }
+
+    const allowedWaktu = ['Subuh', 'Dhuha', 'Dzuhur & Ashar', 'Maghrib', 'Isya'];
+    if (allowedWaktu.indexOf(waktuSholat) === -1) {
+      return { success: false, message: 'Waktu sholat tidak valid.' };
+    }
+    const allowedStatus = ['Hadir', 'Tidak Hadir', 'Izin / Uzur'];
+    if (allowedStatus.indexOf(status) === -1) {
+      return { success: false, message: 'Status tidak valid.' };
+    }
+
+    const nisn = String(session.identifier).trim();
+    const ss = getSpreadsheet();
+
+    // Cek jendela waktu: di luar jam yang diatur guru/admin, siswa tidak boleh
+    // mengisi absensi sholat ini sendiri sama sekali.
+    const jendela = _cekWaktuSholatDibuka(ss, waktuSholat);
+    if (!jendela.diizinkan) {
+      return {
+        success: false,
+        message: 'Waktu absen ' + waktuSholat + ' hanya dibuka pukul ' + jendela.mulai + '–' + jendela.selesai +
+          ' (sekarang pukul ' + jendela.sekarang + '). Kamu tidak bisa mengisi absensi ini di luar jam tersebut.'
+      };
+    }
+
+    const siswaSheet = ss.getSheetByName('siswa');
+    let nama = '', kelas = '';
+    if (siswaSheet) {
+      const siswaData = siswaSheet.getDataRange().getValues();
+      for (let i = 1; i < siswaData.length; i++) {
+        if (String(siswaData[i][1]).replace(/^'/, '').trim() === nisn) {
+          nama = siswaData[i][0];
+          kelas = siswaData[i][8];
+          break;
+        }
+      }
+    }
+    if (!nama) return { success: false, message: 'Data siswa tidak ditemukan.' };
+
+    const today = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+
+    // Kunci: kalau absensi utk (hari ini + waktu ini) sudah diinput oleh guru/admin
+    // (bukan isian mandiri siswa) dan belum diizinkan ulang oleh guru, siswa tidak
+    // boleh menimpanya sendiri.
+    const kunci = cekKuncEditSiswaSholat(ss, nisn, today, waktuSholat);
+    if (kunci.terkunci) {
+      return {
+        success: false,
+        message: 'Absensi ini sudah diinput oleh ' + (kunci.inputOleh || 'guru/admin') + '. Kamu tidak bisa mengubahnya sendiri kecuali diizinkan oleh guru.'
+      };
+    }
+
+    // Reuse fungsi utama agar logic dedup per (tanggal+NISN+waktu) & cek hari libur
+    // tetap konsisten dengan input guru/admin.
+    return submitAbsensiSholat(
+      [{ nisn: nisn, nama: nama, kelas: kelas, status: status, keterangan: keterangan || '' }],
+      today,
+      waktuSholat,
+      nama + ' (Isi Mandiri)'
+    );
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// Ambil status absensi sholat siswa (yang sedang login) untuk HARI INI, per waktu sholat.
+// Dipakai untuk menampilkan status terkini di halaman "Absensi Sholat" siswa,
+// termasuk kalau statusnya sudah diisi lebih dulu oleh guru/admin (bukan oleh siswa sendiri).
+function getAbsensiSholatSiswaHariIni(token) {
+  try {
+    const session = getSessionInfo(token);
+    if (session.role !== 'siswa') {
+      return { success: false, message: 'Akses ditolak: fitur ini hanya untuk siswa.' };
+    }
+    const nisn = String(session.identifier).trim();
+    const ss = getSpreadsheet();
+    const today = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    const result = {};
+
+    const sheet = ss.getSheetByName('absensi_sholat');
+    if (sheet) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (!data[i][0]) continue;
+        const rowDate = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+        if (rowDate !== today) continue;
+        const rowNisn = String(data[i][1]).replace(/^'/, '').trim();
+        if (rowNisn !== nisn) continue;
+        const waktu = String(data[i][4]).trim();
+        const inputOleh = String(data[i][7] || '');
+        const olehSiswaSendiri = inputOleh.indexOf('Isi Mandiri') !== -1;
+        const flagIzin = data[i][9];
+        const izinEdit = flagIzin === true || String(flagIzin).trim().toUpperCase() === 'TRUE' || String(flagIzin).trim() === '1';
+        result[waktu] = {
+          status: data[i][5],
+          keterangan: data[i][6],
+          inputOleh: inputOleh,
+          izinEdit: izinEdit,
+          terkunci: !olehSiswaSendiri && !izinEdit
+        };
+      }
+    }
+
+    // Cek status hari libur (biar tombol input bisa dikunci di frontend)
+    let isLibur = false, keteranganLibur = '';
+    const configResult = getAppConfig();
+    const config = configResult.success ? configResult.data : {};
+    const dayIndex = formatWaktuSheet(new Date(), 'u');
+    if (config.jadwal_harian) {
+      const sc = config.jadwal_harian[dayIndex];
+      if (!sc || sc.libur) { isLibur = true; keteranganLibur = (sc && sc.keterangan) || 'Hari Libur'; }
+    }
+    if (!isLibur) {
+      const liburSheet = ss.getSheetByName('hari_libur');
+      if (liburSheet) {
+        const liburData = liburSheet.getDataRange().getValues();
+        for (let i = 1; i < liburData.length; i++) {
+          if (!liburData[i][0]) continue;
+          if (formatWaktuSheet(new Date(liburData[i][0]), 'yyyy-MM-dd') === today) {
+            isLibur = true; keteranganLibur = liburData[i][1] || 'Hari Libur';
+            break;
+          }
+        }
+      }
+    }
+
+    return { success: true, data: result, tanggal: today, isLibur: isLibur, keteranganLibur: keteranganLibur, jendelaWaktu: _getJendelaWaktuSholatUntukFrontend(ss) };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// Ambil semua jendela waktu sholat + status buka/tutup SAAT INI, siap pakai untuk frontend.
+function _getJendelaWaktuSholatUntukFrontend(ss) {
+  const setting = _getPengaturanWaktuSholatRaw(ss);
+  const nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm');
+  const out = {};
+  Object.keys(setting).forEach(w => {
+    const win = setting[w];
+    let status = 'buka';
+    if (nowStr < win.mulai) status = 'belum';
+    else if (nowStr > win.selesai) status = 'selesai';
+    out[w] = {
+      mulai: win.mulai,
+      selesai: win.selesai,
+      sedangDibuka: (status === 'buka'),
+      status: status // 'belum' | 'buka' | 'selesai'
+    };
+  });
+  return out;
+}
+
+// ====================================
+// SISWA - CRUD OPERATIONS
+// ====================================
+function getSiswaList(filterKelas) { // Tambahkan parameter filterKelas
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('siswa');
+    const data = sheet.getDataRange().getValues();
+    const siswaList = [];
+
+    // Support multi-kelas: filterKelas bisa string biasa atau "Kelas A,Kelas B"
+    const kelasList = filterKelas
+      ? String(filterKelas).split(',').map(k => k.trim()).filter(Boolean)
+      : null;
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0]) { 
+        
+        // --- LOGIKA FILTER MULTI-KELAS ---
+        const siswaKelas = String(data[i][8]).trim(); // Kolom I (Index 8) adalah Kelas
+        if (kelasList && kelasList.length > 0 && !kelasList.includes(siswaKelas)) {
+           continue; 
+        }
+        // ---------------------------------
+
+        // --- FORMAT TANGGAL (Sama seperti sebelumnya) ---
+        let rawTgl = data[i][3];
+        let tglLahir = '';
+
+        if (rawTgl instanceof Date) {
+          tglLahir = formatWaktuSheet(rawTgl, 'yyyy-MM-dd');
+        } else if (typeof rawTgl === 'string') {
+          let cleanTgl = rawTgl.replace(/'/g, "").trim();
+          if (cleanTgl.includes('-')) {
+            let parts = cleanTgl.split('-');
+            if (parts[2] && parts[2].length === 4) {
+               tglLahir = parts[2] + '-' + parts[1] + '-' + parts[0];
+            } else {
+               tglLahir = cleanTgl;
+            }
+          }
+        }
+
+        siswaList.push({
+          nama: data[i][0],
+          nisn: data[i][1],
+          jenisKelamin: data[i][2],
+          tanggalLahir: tglLahir,
+          agama: data[i][4],
+          namaAyah: data[i][5],
+          namaIbu: data[i][6],
+          noHp: data[i][7],
+          kelas: data[i][8],
+          alamat: data[i][9]
+        });
+      }
+    }
+    
+    return { success: true, data: siswaList };
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+function getSiswaByNisn(nisn) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('siswa');
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][1] == nisn) {
+        
+        // FORMAT TANGGAL LAHIR DISINI JUGA
+        let tglLahir = '';
+        if (data[i][3]) {
+          tglLahir = formatWaktuSheet(new Date(data[i][3]), 'yyyy-MM-dd');
+        }
+
+        return {
+          success: true,
+          data: {
+            nama: data[i][0],
+            nisn: data[i][1],
+            jenisKelamin: data[i][2],
+            tanggalLahir: tglLahir,
+            agama: data[i][4],
+            namaAyah: data[i][5],
+            namaIbu: data[i][6],
+            noHp: data[i][7],
+            kelas: data[i][8],
+            alamat: data[i][9]
+          }
+        };
+      }
+    }
+    
+    return { success: false, message: 'Siswa tidak ditemukan' };
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+function addSiswa(token, siswaData) { 
+  try {
+    // --- 1. PASANG SATPAM DISINI ---
+    // Cek apakah pengirim punya token admin yang valid?
+    verifyUser(token, 'admin'); 
+    // -------------------------------
+
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('siswa');
+
+    // Cek NISN duplikat
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][1] == siswaData.nisn) {
+        return { success: false, message: 'NISN sudah terdaftar' };
+      }
+    }
+    
+    // Format Tanggal
+    let tglSimpan = siswaData.tanggalLahir;
+    if (tglSimpan && tglSimpan.includes('-')) {
+      let parts = tglSimpan.split('-');
+      tglSimpan = "'" + parts[2] + '-' + parts[1] + '-' + parts[0];
+    }
+
+    sheet.appendRow([
+      siswaData.nama,
+      siswaData.nisn,
+      siswaData.jenisKelamin,
+      tglSimpan,
+      siswaData.agama,
+      siswaData.namaAyah,
+      siswaData.namaIbu,
+      siswaData.noHp,
+      siswaData.kelas,
+      siswaData.alamat
+    ]);
+    return { success: true, message: 'Siswa berhasil ditambahkan (Aman)' };
+
+  } catch (error) {
+    // Jika token salah, akan masuk ke sini
+    return { success: false, message: "GAGAL: " + error.message };
+  }
+}
+
+// Ganti function updateSiswa yang lama dengan ini
+function updateSiswa(token, oldNisn, siswaData) { // Pastikan ada parameter token
+  try {
+    // 1. PERBAIKAN ERROR REFERENCE
+    // Gunakan 'verifyUser' sesuai yang ada di kode Anda (baris 21), bukan 'verifyToken'
+    verifyUser(token, 'admin'); 
+    
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('siswa');
+    const data = sheet.getDataRange().getValues();
+    
+    // Logika Format Tanggal (Sesuai kode asli Anda)
+    let tglSimpan = siswaData.tanggalLahir;
+    if (tglSimpan && tglSimpan.includes('-')) {
+       let parts = tglSimpan.split('-');
+       if(parts[0].length === 4) { 
+           tglSimpan = "'" + parts[2] + '-' + parts[1] + '-' + parts[0];
+       }
+    }
+
+    // 2. PERBAIKAN PENCARIAN (SOLUSI SISWA TIDAK DITEMUKAN)
+    // Gunakan .trim() untuk menghapus spasi yang tidak terlihat
+    let rowIndex = -1;
+    for (let i = 1; i < data.length; i++) {
+      // Bandingkan NISN di sheet dengan NISN yang mau diedit
+      if (String(data[i][1]).trim() === String(oldNisn).trim()) {
+        rowIndex = i;
+        break; // Data ditemukan, hentikan loop
+      }
+    }
+
+    if (rowIndex !== -1) {
+        // Lakukan Update Data
+        sheet.getRange(rowIndex + 1, 1, 1, 10).setValues([[
+          siswaData.nama,
+          siswaData.nisn,
+          siswaData.jenisKelamin,
+          tglSimpan, 
+          siswaData.agama,
+          siswaData.namaAyah,
+          siswaData.namaIbu,
+          siswaData.noHp,
+          siswaData.kelas,
+          siswaData.alamat
+        ]]);
+        return { success: true, message: 'Siswa berhasil diupdate' };
+    }
+    
+    return { success: false, message: 'Siswa tidak ditemukan (Cek spasi pada NISN)' };
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+function deleteSiswa(token, nisn) {
+  try {
+    // 1. CEK KEAMANAN (Server Side Validation)
+    // Hanya user dengan role 'admin' yang memiliki token valid yang boleh menghapus
+    verifyUser(token, 'admin'); 
+
+    // 2. LOGIKA HAPUS (Jika token valid, kode lanjut ke sini)
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('siswa');
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      // Cek NISN pada kolom index 1
+      if (String(data[i][1]) === String(nisn)) {
+        sheet.deleteRow(i + 1);
+        return { success: true, message: 'Data siswa berhasil dihapus.' };
+      }
+    }
+    
+    return { success: false, message: 'Data siswa tidak ditemukan.' };
+
+  } catch (error) {
+    // Jika verifyUser gagal, error akan tertangkap di sini
+    return { success: false, message: error.message };
+  }
+}
+
+// ====================================
+// GURU - CRUD OPERATIONS
+// ====================================
+function getGuruList(token) {
+  try {
+    // 1. CEK KEAMANAN (Server Side Validation)
+    // Wajib role 'admin'. Token siswa/guru akan ditolak disini.
+    verifyUser(token, 'admin'); 
+
+    // 2. LOGIKA AMBIL DATA (Hanya jalan jika token valid & admin)
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('users');
+    const data = sheet.getDataRange().getValues();
+    const guruList = [];
+
+    // Loop data mulai baris 1 (lewati header)
+    for (let i = 1; i < data.length; i++) {
+      // Cek kolom Role (Index 2) apakah 'guru'
+      if (data[i][2] == 'guru') {
+        guruList.push({
+          username: data[i][0], // Kolom A
+          password: data[i][1], // Kolom B (Sensitif)
+          role: data[i][2],     // Kolom C
+          kelas: data[i][3] || "" // Kolom D (Wali Kelas)
+        });
+      }
+    }
+
+    return { success: true, data: guruList };
+
+  } catch (error) {
+    // Jika verifyUser melempar error (Akses Ditolak), akan ditangkap disini
+    return { success: false, message: error.message };
+  }
+}
+
+function addGuru(token, username, password, kelas) { // Tambah param token
+  try {
+    verifyUser(token, 'admin'); // <-- SATPAM: Cek Token Admin
+
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('users');
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] == username) {
+        return { success: false, message: 'Username sudah terdaftar' };
+      }
+    }
+    sheet.appendRow([username, password, 'guru', kelas]);
+    return { success: true, message: 'Guru berhasil ditambahkan' };
+  } catch (error) {
+    return { success: false, message: "Akses Ditolak: " + error.message };
+  }
+}
+
+function updateGuru(token, oldUsername, newUsername, password, kelas) { // Tambah param token
+  try {
+    verifyUser(token, 'admin'); // <-- SATPAM
+
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('users');
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] == oldUsername && data[i][2] == 'guru') {
+        sheet.getRange(i + 1, 1, 1, 4).setValues([[newUsername, password, 'guru', kelas]]);
+        return { success: true, message: 'Guru berhasil diupdate' };
+      }
+    }
+    return { success: false, message: 'Guru tidak ditemukan' };
+  } catch (error) {
+    return { success: false, message: "Akses Ditolak: " + error.message };
+  }
+}
+
+function deleteGuru(token, username) { // Tambah param token
+  try {
+    verifyUser(token, 'admin'); // <-- SATPAM
+
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('users');
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] == username && data[i][2] == 'guru') {
+        sheet.deleteRow(i + 1);
+        return { success: true, message: 'Guru berhasil dihapus' };
+      }
+    }
+    return { success: false, message: 'Guru tidak ditemukan' };
+  } catch (error) {
+    return { success: false, message: "Akses Ditolak: " + error.message };
+  }
+}
+
+// ====================================
+// ABSENSI OPERATIONS
+// ====================================
+function scanAbsensi(nisn, scannerRole, scannerKelas) {
+  try {
+    const ss = getSpreadsheet();
+    const today = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    const nowTime = formatWaktuSheet(new Date(), 'HH:mm');
+
+    // 1. AMBIL KONFIGURASI JAM
+    const configResult = getAppConfig();
+    const config = configResult.success ? configResult.data : {
+      jam_masuk_akhir: '07:15',
+      jam_pulang_mulai: '15:00',
+      jam_pulang_akhir: '17:00'
+    };
+
+    // 2. CEK HARI LIBUR & TERAPKAN JAM JADWAL HARI INI
+    
+    // A. Tentukan hari ini (1=Senin ... 7=Minggu)
+    const dayIndex = formatWaktuSheet(new Date(), 'u');
+    const dayNames = {'1':'Senin','2':'Selasa','3':'Rabu','4':'Kamis','5':'Jumat','6':'Sabtu','7':'Minggu'};
+    
+    // B. Cek jadwal harian per hari
+    if (config.jadwal_harian) {
+      const todaySchedule = config.jadwal_harian[dayIndex];
+      if (!todaySchedule || todaySchedule.libur) {
+        return { success: false, message: `Absensi DITUTUP. Hari ini libur rutin: Hari ${dayNames[dayIndex] || ''}` };
+      }
+      // Override config dengan jadwal hari ini
+      config.jam_masuk_mulai  = todaySchedule.masuk_mulai  || config.jam_masuk_mulai;
+      config.jam_masuk_akhir  = todaySchedule.masuk_akhir  || config.jam_masuk_akhir;
+      config.jam_pulang_mulai = todaySchedule.pulang_mulai || config.jam_pulang_mulai;
+      config.jam_pulang_akhir = todaySchedule.pulang_akhir || config.jam_pulang_akhir;
+    } else if (dayIndex === '7') {
+      return { success: false, message: 'Absensi DITUTUP. Hari ini libur rutin: Hari Minggu' };
+    }
+
+    // C. Cek Tanggal Merah dari Database
+    const liburSheet = ss.getSheetByName('hari_libur');
+    if (liburSheet) {
+      const liburData = liburSheet.getDataRange().getValues();
+      for (let i = 1; i < liburData.length; i++) {
+        if (liburData[i][0]) {
+          let tglLibur = formatWaktuSheet(new Date(liburData[i][0]), 'yyyy-MM-dd');
+          if (tglLibur === today) {
+            return { success: false, message: 'Absensi DITUTUP. Hari ini libur: ' + liburData[i][1] };
+          }
+        }
+      }
+    }
+
+    const absensiSheet = ss.getSheetByName('absensi');
+    const siswaSheet = ss.getSheetByName('siswa');
+    
+    // 3. VALIDASI INPUT QR
+    const scannedNisn = String(nisn).trim();
+    if (scannedNisn === "" || scannedNisn === "undefined") {
+      return { success: false, message: 'QR Code tidak valid atau kosong.' };
+    }
+
+    // 4. CARI DATA SISWA
+    const siswaData = siswaSheet.getDataRange().getValues();
+    let siswa = null;
+    
+    for (let i = 1; i < siswaData.length; i++) {
+      // Kolom index 1 adalah NISN
+      if (String(siswaData[i][1]).trim() === scannedNisn) {
+        siswa = {
+          nama: siswaData[i][0],
+          nisn: siswaData[i][1],
+          kelas: siswaData[i][8]
+        };
+        break;
+      }
+    }
+    
+    if (!siswa) {
+      return { success: false, message: 'NISN tidak terdaftar di database.' };
+    }
+
+    // 5. VALIDASI KELAS (Jika Scanner adalah GURU)
+    if (scannerRole === 'guru') {
+      const kelasSiswa = String(siswa.kelas).trim();
+      const kelasGuruList = scannerKelas
+        ? String(scannerKelas).split(',').map(k => k.trim()).filter(Boolean)
+        : [];
+      // Jika guru punya kelas (bukan guru umum), dan kelas siswa tidak termasuk -> TOLAK
+      if (kelasGuruList.length > 0 && !kelasGuruList.map(k=>k.toUpperCase()).includes(kelasSiswa.toUpperCase())) {
+        return { 
+          success: false, 
+          message: `Ditolak! Siswa ini kelas ${siswa.kelas}. Anda hanya bisa scan kelas ${scannerKelas}.` 
+        };
+      }
+    }
+
+    // 6. PROSES ABSENSI — tergantung mode_absen
+    const modeAbsen = config.mode_absen || 'masuk_pulang'; // masuk_saja | masuk_pulang | masuk_sholat_pulang
+    const absensiData = absensiSheet.getDataRange().getValues();
+    
+    for (let i = 1; i < absensiData.length; i++) {
+      const rowDateCell = absensiData[i][0];
+      if (!rowDateCell) continue;
+
+      const rowDateStr = formatWaktuSheet(new Date(rowDateCell), 'yyyy-MM-dd');
+      const rowNisn = String(absensiData[i][1]).trim();
+      
+      // Data hari ini ditemukan untuk NISN ini
+      if (rowDateStr === today && rowNisn === scannedNisn) {
+
+        // ─── MODE: MASUK SAJA ───────────────────────────────────────
+        if (modeAbsen === 'masuk_saja') {
+          return { success: false, message: `${siswa.nama} sudah absen masuk hari ini. Tidak ada absen lanjutan (mode 1x).` };
+        }
+
+        // ─── MODE: MASUK + PULANG ───────────────────────────────────
+        if (modeAbsen === 'masuk_pulang') {
+          if (absensiData[i][5]) {
+            return { success: false, message: 'Siswa sudah melakukan absen pulang hari ini.' };
+          }
+          // Validasi batas pulang
+          if (nowTime > config.jam_pulang_akhir) {
+            return { success: false, message: `Gagal! Batas waktu pulang (${config.jam_pulang_akhir}) sudah lewat.` };
+          }
+          // Jeda minimal 1 menit
+          let jamDatangRaw = absensiData[i][4];
+          let jamDatangStr = (jamDatangRaw instanceof Date) ? formatWaktuSheet(jamDatangRaw, 'HH:mm') : String(jamDatangRaw).substring(0, 5);
+          if (calculateTimeDiff(jamDatangStr, nowTime) < 1) {
+            return { success: false, message: 'Terlalu Cepat! Tunggu sebentar lagi.' };
+          }
+          let ketSaatIni = absensiData[i][6];
+          let ketBaru = ketSaatIni;
+          let pesanPulang = 'Absen Pulang Berhasil';
+          if (nowTime < config.jam_pulang_mulai) {
+            ketBaru = (ketSaatIni ? ketSaatIni + ' & ' : '') + 'Pulang Cepat';
+            pesanPulang = 'Absen Pulang (Pulang Cepat)';
+          }
+          const jamPulang = formatWaktuSheet(new Date(), 'HH:mm:ss');
+          absensiSheet.getRange(i + 1, 6).setValue(jamPulang);
+          absensiSheet.getRange(i + 1, 7).setValue(ketBaru);
+          return { success: true, message: pesanPulang, type: 'pulang', jamPulang, nama: siswa.nama, kelas: siswa.kelas, status: 'Hadir' };
+        }
+
+        // ─── MODE: MASUK + SHOLAT + PULANG ─────────────────────────
+        if (modeAbsen === 'masuk_sholat_pulang') {
+          const jamSholatKol = absensiData[i][8]; // Kolom I (index 8)
+          const jamPulangKol = absensiData[i][5]; // Kolom F (index 5)
+
+          // Sudah pulang
+          if (jamPulangKol) {
+            return { success: false, message: 'Siswa sudah melakukan absen pulang hari ini.' };
+          }
+
+          // Langkah 2: Belum sholat → catat sholat
+          if (!jamSholatKol) {
+            let jamDatangRaw = absensiData[i][4];
+            let jamDatangStr = (jamDatangRaw instanceof Date) ? formatWaktuSheet(jamDatangRaw, 'HH:mm') : String(jamDatangRaw).substring(0, 5);
+            if (calculateTimeDiff(jamDatangStr, nowTime) < 1) {
+              return { success: false, message: 'Terlalu Cepat! Tunggu sebentar lagi.' };
+            }
+            const jamSholat = formatWaktuSheet(new Date(), 'HH:mm:ss');
+            absensiSheet.getRange(i + 1, 9).setValue(jamSholat); // Kolom I
+            return { success: true, message: 'Absen Sholat Berhasil ✓', type: 'sholat', jamSholat, nama: siswa.nama, kelas: siswa.kelas, status: 'Hadir' };
+          }
+
+          // Langkah 3: Sudah sholat → catat pulang
+          if (nowTime > config.jam_pulang_akhir) {
+            return { success: false, message: `Gagal! Batas waktu pulang (${config.jam_pulang_akhir}) sudah lewat.` };
+          }
+          let ketSaatIni = absensiData[i][6];
+          let ketBaru = ketSaatIni;
+          let pesanPulang = 'Absen Pulang Berhasil';
+          if (nowTime < config.jam_pulang_mulai) {
+            ketBaru = (ketSaatIni ? ketSaatIni + ' & ' : '') + 'Pulang Cepat';
+            pesanPulang = 'Absen Pulang (Pulang Cepat)';
+          }
+          const jamPulang = formatWaktuSheet(new Date(), 'HH:mm:ss');
+          absensiSheet.getRange(i + 1, 6).setValue(jamPulang);
+          absensiSheet.getRange(i + 1, 7).setValue(ketBaru);
+          return { success: true, message: pesanPulang, type: 'pulang', jamPulang, nama: siswa.nama, kelas: siswa.kelas, status: 'Hadir' };
+        }
+      }
+    }
+
+    // === SKENARIO ABSEN MASUK (Data Hari Ini Belum Ada) ===
+
+    // 1. Blokir jika absen belum dibuka (sebelum jam_masuk_mulai)
+    if (nowTime < config.jam_masuk_mulai) {
+      return { success: false, message: `Absensi belum dibuka. Buka mulai jam ${config.jam_masuk_mulai}.` };
+    }
+
+    // 2. Blokir jika sudah melewati seluruh jam operasional
+    //    Mode masuk_saja: blokir setelah jam_masuk_akhir + toleransi
+    //    Mode lain: blokir setelah jam_pulang_akhir
+    const batasAkhir = (modeAbsen === 'masuk_saja') ? config.jam_masuk_akhir : config.jam_pulang_akhir;
+    if (nowTime > batasAkhir) {
+      return { success: false, message: `Absensi Ditutup! Sudah melewati batas waktu (${batasAkhir}).` };
+    }
+
+    // 3. Tentukan status: Tepat Waktu atau Terlambat
+    let keteranganWaktu = 'Tepat Waktu';
+    let statusKehadiran = 'Hadir';
+
+    if (nowTime > config.jam_masuk_akhir) {
+      const lateMinutes = calculateTimeDiff(config.jam_masuk_akhir, nowTime);
+      keteranganWaktu = `Terlambat ${lateMinutes} menit`;
+    }
+    const jamDatang = formatWaktuSheet(new Date(), 'HH:mm:ss');
+    
+    // INSERT DATA BARU (APPEND ROW) — 9 kolom (kolom I = Jam Sholat, kosong dulu)
+    var tanggalSaja = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    absensiSheet.appendRow([
+      tanggalSaja,         // A: Tanggal
+      "'" + scannedNisn,  // B: NISN
+      siswa.nama,         // C: Nama
+      siswa.kelas,        // D: Kelas
+      jamDatang,          // E: Jam Datang
+      '',                 // F: Jam Pulang (kosong dulu)
+      keteranganWaktu,    // G: Keterangan Waktu
+      statusKehadiran,    // H: Status
+      ''                  // I: Jam Sholat (kosong dulu, diisi saat mode sholat)
+    ]);
+
+    // Pesan konfirmasi & petunjuk langkah berikutnya
+    let responseMessage = 'Absen Masuk Berhasil ✓';
+    if (keteranganWaktu.includes('Terlambat')) {
+      responseMessage = `Absen Masuk (${keteranganWaktu})`;
+    }
+    // Beri petunjuk scan berikutnya sesuai mode
+    let nextStep = null;
+    if (modeAbsen === 'masuk_pulang') {
+      nextStep = 'Scan lagi nanti untuk absen pulang';
+    } else if (modeAbsen === 'masuk_sholat_pulang') {
+      nextStep = 'Scan lagi untuk absen sholat, lalu pulang';
+    }
+
+    return {
+      success: true,
+      message: responseMessage,
+      type: 'datang',
+      jamDatang,
+      nama: siswa.nama,
+      kelas: siswa.kelas,
+      status: statusKehadiran,
+      nextStep
+    };
+
+  } catch (error) {
+    return { success: false, message: "Error Server: " + error.toString() };
+  }
+}
+
+// ============================================================
+// FUNGSI LOOKUP CEPAT — hanya ambil nama & kelas, TIDAK catat absensi
+// Dipakai frontend saat scan sebelum submit kolektif
+// ============================================================
+function lookupSiswaForScan(nisn) {
+  try {
+    const ss = getSpreadsheet();
+    const siswaSheet = ss.getSheetByName('siswa');
+    const data = siswaSheet.getDataRange().getValues();
+    const scannedNisn = String(nisn).trim();
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][1]).trim() === scannedNisn) {
+        return {
+          success: true,
+          nama: data[i][0],
+          nisn: data[i][1],
+          kelas: data[i][8]
+        };
+      }
+    }
+    return { success: false, message: 'NISN tidak terdaftar di database.' };
+  } catch (e) {
+    return { success: false, message: 'Error: ' + e.toString() };
+  }
+}
+
+// ============================================================
+// FUNGSI BATCH ABSENSI — terima array NISN, proses sekaligus
+// ============================================================
+function batchScanAbsensi(nisnList, scannerRole, scannerKelas) {
+  try {
+    const ss = getSpreadsheet();
+    const today = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    const nowTime = formatWaktuSheet(new Date(), 'HH:mm');
+
+    // 1. Ambil konfigurasi jam
+    const configResult = getAppConfig();
+    const config = configResult.success ? configResult.data : {
+      jam_masuk_akhir: '07:15',
+      jam_pulang_mulai: '15:00',
+      jam_pulang_akhir: '17:00'
+    };
+
+    // 2. Cek hari libur & terapkan jadwal hari ini
+    const dayIndex = formatWaktuSheet(new Date(), 'u');
+    const dayNames = {'1':'Senin','2':'Selasa','3':'Rabu','4':'Kamis','5':'Jumat','6':'Sabtu','7':'Minggu'};
+    if (config.jadwal_harian) {
+      const todaySchedule = config.jadwal_harian[dayIndex];
+      if (!todaySchedule || todaySchedule.libur) {
+        return { success: false, message: `Absensi DITUTUP. Hari ini libur rutin: Hari ${dayNames[dayIndex] || ''}` };
+      }
+      config.jam_masuk_mulai  = todaySchedule.masuk_mulai  || config.jam_masuk_mulai;
+      config.jam_masuk_akhir  = todaySchedule.masuk_akhir  || config.jam_masuk_akhir;
+      config.jam_pulang_mulai = todaySchedule.pulang_mulai || config.jam_pulang_mulai;
+      config.jam_pulang_akhir = todaySchedule.pulang_akhir || config.jam_pulang_akhir;
+    } else if (dayIndex === '7') {
+      return { success: false, message: 'Absensi DITUTUP. Hari ini Hari Minggu.' };
+    }
+    const liburSheet = ss.getSheetByName('hari_libur');
+    if (liburSheet) {
+      const liburData = liburSheet.getDataRange().getValues();
+      for (let i = 1; i < liburData.length; i++) {
+        if (liburData[i][0]) {
+          if (formatWaktuSheet(new Date(liburData[i][0]), 'yyyy-MM-dd') === today) {
+            return { success: false, message: 'Absensi DITUTUP. Hari libur: ' + liburData[i][1] };
+          }
+        }
+      }
+    }
+
+    const absensiSheet = ss.getSheetByName('absensi');
+    const siswaSheet   = ss.getSheetByName('siswa');
+
+    // 3. Pre-load data siswa ke Map agar pencarian O(1)
+    const siswaRaw = siswaSheet.getDataRange().getValues();
+    const siswaMap = {};
+    for (let i = 1; i < siswaRaw.length; i++) {
+      siswaMap[String(siswaRaw[i][1]).trim()] = {
+        nama: siswaRaw[i][0],
+        nisn: siswaRaw[i][1],
+        kelas: siswaRaw[i][8]
+      };
+    }
+
+    // 4. Pre-load data absensi hari ini ke Map
+    const absensiRaw = absensiSheet.getDataRange().getValues();
+    const absensiMap = {}; // nisn -> { rowIndex, jamDatang, jamPulang }
+    for (let i = 1; i < absensiRaw.length; i++) {
+      const rowDate = absensiRaw[i][0];
+      if (!rowDate) continue;
+      const rowDateStr = formatWaktuSheet(new Date(rowDate), 'yyyy-MM-dd');
+      if (rowDateStr === today) {
+        absensiMap[String(absensiRaw[i][1]).trim()] = {
+          rowIndex: i + 1, // 1-based untuk getRange
+          jamDatang: absensiRaw[i][4],
+          jamPulang: absensiRaw[i][5],
+          keterangan: absensiRaw[i][6]
+        };
+      }
+    }
+
+    const results = [];
+    const nowJam  = formatWaktuSheet(new Date(), 'HH:mm:ss');
+    const rowsToAppend = [];
+
+    for (let idx = 0; idx < nisnList.length; idx++) {
+      const scannedNisn = String(nisnList[idx]).trim();
+      if (!scannedNisn || scannedNisn === 'undefined') {
+        results.push({ nisn: scannedNisn, success: false, message: 'NISN tidak valid' });
+        continue;
+      }
+
+      const siswa = siswaMap[scannedNisn];
+      if (!siswa) {
+        results.push({ nisn: scannedNisn, success: false, message: 'NISN tidak terdaftar' });
+        continue;
+      }
+
+      // Validasi kelas guru
+      if (scannerRole === 'guru' && scannerKelas) {
+        if (String(siswa.kelas).trim().toUpperCase() !== String(scannerKelas).trim().toUpperCase()) {
+          results.push({ nisn: scannedNisn, nama: siswa.nama, kelas: siswa.kelas, success: false, message: `Ditolak! Siswa kelas ${siswa.kelas}, bukan kelas Anda.` });
+          continue;
+        }
+      }
+
+      const existing = absensiMap[scannedNisn];
+
+      if (existing) {
+        // Skenario PULANG
+        if (existing.jamPulang) {
+          results.push({ nisn: scannedNisn, nama: siswa.nama, kelas: siswa.kelas, success: false, message: 'Sudah absen pulang hari ini.' });
+          continue;
+        }
+        if (nowTime > config.jam_pulang_akhir) {
+          results.push({ nisn: scannedNisn, nama: siswa.nama, kelas: siswa.kelas, success: false, message: `Batas waktu pulang (${config.jam_pulang_akhir}) sudah lewat.` });
+          continue;
+        }
+        let ketBaru = existing.keterangan || '';
+        if (nowTime < config.jam_pulang_mulai) {
+          ketBaru = (ketBaru ? ketBaru + ' & ' : '') + 'Pulang Cepat (Input: ' + (namaPengirim || 'Guru') + ')';
+        }
+        // Update langsung ke sheet
+        absensiSheet.getRange(existing.rowIndex, 6).setValue(nowJam);
+        absensiSheet.getRange(existing.rowIndex, 7).setValue(ketBaru);
+        results.push({ nisn: scannedNisn, nama: siswa.nama, kelas: siswa.kelas, success: true, type: 'pulang', jamPulang: nowJam, message: 'Absen Pulang Berhasil' });
+
+      } else {
+        // Skenario DATANG — cek batas waktu dulu
+        if (nowTime < config.jam_masuk_mulai) {
+          results.push({ nisn: scannedNisn, nama: siswa.nama, kelas: siswa.kelas, success: false, message: `Absensi belum dibuka (mulai ${config.jam_masuk_mulai}).` });
+          continue;
+        }
+        if (nowTime > config.jam_pulang_akhir) {
+          results.push({ nisn: scannedNisn, nama: siswa.nama, kelas: siswa.kelas, success: false, message: `Absensi sudah ditutup (lewat ${config.jam_pulang_akhir}).` });
+          continue;
+        }
+        let keterangan = 'Tepat Waktu';
+        if (nowTime > config.jam_masuk_akhir) {
+          const lateMinutes = calculateTimeDiff(config.jam_masuk_akhir, nowTime);
+          keterangan = `Terlambat ${lateMinutes} menit`;
+        }
+        const msgDatang = keterangan.includes('Terlambat') ? `Absen Masuk (${keterangan})` : 'Absen Masuk Berhasil';
+        rowsToAppend.push([
+          today,
+          "'" + scannedNisn,
+          siswa.nama,
+          siswa.kelas,
+          nowJam,
+          '',
+          keterangan,
+          'Hadir'
+        ]);
+        results.push({ nisn: scannedNisn, nama: siswa.nama, kelas: siswa.kelas, success: true, type: 'datang', jamDatang: nowJam, message: msgDatang });
+      }
+    }
+
+    // Batch append semua data datang sekaligus (jauh lebih cepat)
+    if (rowsToAppend.length > 0) {
+      const lastRow = absensiSheet.getLastRow();
+      absensiSheet.getRange(lastRow + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
+    }
+
+    return { success: true, results: results };
+
+  } catch (e) {
+    return { success: false, message: 'Error Server: ' + e.toString() };
+  }
+}
+
+// Pastikan helper ini ada di paling bawah file code.gs
+function calculateTimeDiff(startTime, endTime) {
+  const [h1, m1] = startTime.split(':').map(Number);
+  const [h2, m2] = endTime.split(':').map(Number);
+  
+  const totalMinutes1 = h1 * 60 + m1;
+  const totalMinutes2 = h2 * 60 + m2;
+  
+  return totalMinutes2 - totalMinutes1;
+}
+
+function getAbsensiToday(nisn) {
+  try {
+    const ss = getSpreadsheet();
+    const todayStr = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    
+    // --- 1. CEK STATUS HARI LIBUR ---
+    const liburSheet = ss.getSheetByName('hari_libur');
+    let isLibur = false;
+    let keteranganLibur = "";
+
+    // A. Cek Jadwal Harian Per-Hari dari Konfigurasi
+    const configResult = getAppConfig();
+    const config = configResult.success ? configResult.data : {};
+    const dayIndex = formatWaktuSheet(new Date(), 'u');
+    const dayNames = {'1':'Senin','2':'Selasa','3':'Rabu','4':'Kamis','5':'Jumat','6':'Sabtu','7':'Minggu'};
+
+    if (config.jadwal_harian) {
+      const todaySchedule = config.jadwal_harian[dayIndex];
+      if (!todaySchedule || todaySchedule.libur) {
+        isLibur = true;
+        keteranganLibur = "Libur Rutin: Hari " + (dayNames[dayIndex] || '');
+      }
+    } else if (dayIndex === '7') {
+      isLibur = true;
+      keteranganLibur = "Hari Minggu";
+    }
+
+    // B. Cek Database Tanggal Merah (prioritas lebih tinggi)
+    if (liburSheet) {
+      const liburData = liburSheet.getDataRange().getValues();
+      for (let i = 1; i < liburData.length; i++) {
+        if (!liburData[i][0]) continue;
+        let tgl = formatWaktuSheet(new Date(liburData[i][0]), 'yyyy-MM-dd');
+        if (tgl === todayStr) {
+          isLibur = true;
+          keteranganLibur = liburData[i][1];
+          break;
+        }
+      }
+    }
+    // ------------------------------------------
+
+    // --- 2. CARI DATA ABSENSI SISWA ---
+    const sheet = ss.getSheetByName('absensi');
+    const data = sheet.getDataRange().getValues();
+    const searchNisn = String(nisn).trim();
+
+    let absensiData = null;
+
+    for (let i = 1; i < data.length; i++) {
+      const rowDateCell = data[i][0];
+      if (!rowDateCell) continue;
+      
+      const rowDateStr = formatWaktuSheet(new Date(rowDateCell), 'yyyy-MM-dd');
+      const rowNisn = String(data[i][1]).trim();
+      
+      // Jika ketemu data absen hari ini untuk NISN tersebut
+      if (rowDateStr === todayStr && rowNisn === searchNisn) {
+        
+        // Format Jam Datang
+        let jamDatang = data[i][4];
+        if (jamDatang instanceof Date) {
+          jamDatang = formatWaktuSheet(jamDatang, 'HH:mm:ss');
+        }
+        
+        // Format Jam Pulang
+        let jamPulang = data[i][5];
+        if (jamPulang instanceof Date) {
+          jamPulang = formatWaktuSheet(jamPulang, 'HH:mm:ss');
+        } else if (!jamPulang) {
+          jamPulang = "";
+        }
+
+        absensiData = {
+          tanggal: rowDateStr,
+          jamDatang: jamDatang,
+          jamPulang: jamPulang,
+          status: data[i][7] // Kolom H (Status)
+        };
+        break; 
+      }
+    }
+
+    // Kembalikan data absen BESERTA status libur
+    return { 
+      success: true, 
+      data: absensiData,
+      isLibur: isLibur,
+      keteranganLibur: keteranganLibur
+    };
+
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+// ====================================
+// GANTI FUNCTION getAbsensiList LAMA DENGAN INI
+// ====================================
+function getAbsensiList(filter = {}) {
+  try {
+    const ss = getSpreadsheet();
+    const siswaSheet = ss.getSheetByName('siswa');
+    const absensiSheet = ss.getSheetByName('absensi');
+    
+    // 1. Ambil Data Master Siswa
+    const rawSiswa = siswaSheet.getDataRange().getValues();
+    let siswaList = [];
+    
+    // Filter Kelas pada level Siswa (support multi-kelas)
+    const fKelas = filter.kelas || "";
+    const fKelasList = fKelas
+      ? String(fKelas).split(',').map(k => k.trim()).filter(Boolean)
+      : [];
+    
+    for (let i = 1; i < rawSiswa.length; i++) {
+      if (!rawSiswa[i][0]) continue;
+      
+      const sNama = rawSiswa[i][0];
+      const sNisn = String(rawSiswa[i][1]).trim();
+      const sKelas = String(rawSiswa[i][8]).trim();
+
+      if (fKelasList.length > 0 && !fKelasList.includes(sKelas)) continue;
+
+      siswaList.push({ nisn: sNisn, nama: sNama, kelas: sKelas });
+    }
+    
+    // Urutkan siswa berdasarkan Nama
+    siswaList.sort((a, b) => a.nama.localeCompare(b.nama));
+
+    // 2. Ambil Data Transaksi Absensi
+    const rawAbsen = absensiSheet.getDataRange().getValues();
+    // Buat Mapping agar pencarian cepat: Key = "Tanggal_NISN"
+    const absenMap = {}; 
+
+    const fStart = filter.tanggalMulai || "";
+    const fEnd = filter.tanggalAkhir || "";
+
+    for (let i = 1; i < rawAbsen.length; i++) {
+      if (!rawAbsen[i][0]) continue;
+      
+      const rawDate = new Date(rawAbsen[i][0]);
+      const tglStr = formatWaktuSheet(rawDate, 'yyyy-MM-dd');
+      
+      // Filter Tanggal di awal untuk efisiensi
+      if (fStart && tglStr < fStart) continue;
+      if (fEnd && tglStr > fEnd) continue;
+
+      const rowNisn = String(rawAbsen[i][1]).trim();
+      const key = tglStr + '_' + rowNisn;
+
+      // Format Jam
+      let jamDatang = rawAbsen[i][4];
+      if (jamDatang instanceof Date) jamDatang = formatWaktuSheet(jamDatang, 'HH:mm:ss');
+      
+      let jamPulang = rawAbsen[i][5];
+      if (jamPulang && jamPulang instanceof Date) jamPulang = formatWaktuSheet(jamPulang, 'HH:mm:ss');
+
+      absenMap[key] = {
+        jamDatang: jamDatang || '-',
+        jamPulang: jamPulang || '-',
+        keterangan: rawAbsen[i][6] || '-',
+        status: rawAbsen[i][7] || 'Hadir'
+      };
+    }
+
+    // 3. Generate Result (Loop Tanggal x Loop Siswa)
+    const result = [];
+    
+    // Tentukan range tanggal iterasi
+    // Jika filter kosong, default tampilkan hari ini saja agar tidak berat
+    const startDate = fStart ? new Date(fStart) : new Date();
+    const endDate = fEnd ? new Date(fEnd) : new Date();
+    
+    // Loop setiap hari dalam rentang tanggal
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = formatWaktuSheet(d, 'yyyy-MM-dd');
+        
+        // Loop setiap siswa
+        for (let s = 0; s < siswaList.length; s++) {
+            const siswa = siswaList[s];
+            const key = dateStr + '_' + siswa.nisn;
+            const dataAbsen = absenMap[key];
+
+            if (dataAbsen) {
+                // KASUS 1: Siswa Absen (Ada datanya)
+                result.push({
+                    tanggal: dateStr,
+                    nisn: siswa.nisn,
+                    nama: siswa.nama,
+                    kelas: siswa.kelas,
+                    jamDatang: dataAbsen.jamDatang,
+                    jamPulang: dataAbsen.jamPulang,
+                    keterangan: dataAbsen.keterangan,
+                    status: dataAbsen.status
+                });
+            } else {
+                // KASUS 2: Siswa Tidak Absen (Data kosong) -> Tampilkan sebagai Belum Absen/Alpha
+                result.push({
+                    tanggal: dateStr,
+                    nisn: siswa.nisn,
+                    nama: siswa.nama,
+                    kelas: siswa.kelas,
+                    jamDatang: "-",
+                    jamPulang: "-",
+                    keterangan: "-",
+                    status: "Belum Absen" // Status default jika tidak ada data
+                });
+            }
+        }
+    }
+
+    return { success: true, data: result };
+
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+function getKelasList() {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('siswa');
+    const data = sheet.getDataRange().getValues();
+    const kelasSet = new Set();
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][8]) {
+        kelasSet.add(data[i][8]);
+      }
+    }
+    
+    return { success: true, data: Array.from(kelasSet).sort() };
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+// ====================================
+// HELPER: Styling Header Profesional
+// ====================================
+function applyProfessionalHeader(sheet, headerRange, bgColor, textColor) {
+  // bg utama header
+  headerRange.setBackground(bgColor)
+    .setFontColor(textColor)
+    .setFontWeight('bold')
+    .setFontSize(11)
+    .setFontFamily('Arial')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(false);
+
+  // Border atas-bawah tegas, kiri-kanan tipis
+  headerRange.setBorder(
+    true, true, true, true, true, true,
+    '#ffffff',
+    SpreadsheetApp.BorderStyle.SOLID_MEDIUM
+  );
+
+  // Row height agar tidak terlalu mepet
+  sheet.setRowHeight(1, 36);
+
+  // Freeze baris header
+  sheet.setFrozenRows(1);
+
+  // Auto-resize semua kolom
+  const numCols = headerRange.getNumColumns();
+  for (let c = 1; c <= numCols; c++) {
+    sheet.autoResizeColumn(c);
+    // Minimal lebar 110px agar tidak terlalu sempit
+    if (sheet.getColumnWidth(c) < 110) sheet.setColumnWidth(c, 110);
+  }
+}
+
+function setupInitialData() {
+  try {
+    const ss = getSpreadsheet();
+
+    // ── 1. Sheet 'users' ────────────────────────────────────────
+    let usersSheet = ss.getSheetByName('users');
+    if (!usersSheet) {
+      usersSheet = ss.insertSheet('users');
+      usersSheet.appendRow(['Username', 'Password', 'Role', 'Kelas']);
+
+      // Data Default
+      usersSheet.appendRow(['admin',  'admin123',  'admin', '']);
+      usersSheet.appendRow(['guru1',  'guru123',   'guru',  'VI B']);
+      usersSheet.appendRow(['wakel',  'wakel123',  'wakel', '']);
+    }
+    // Styling header – biru tua elegan
+    applyProfessionalHeader(
+      usersSheet,
+      usersSheet.getRange(1, 1, 1, 4),
+      '#1a3a5c', '#FFFFFF'
+    );
+
+    // ── 2. Sheet 'siswa' ────────────────────────────────────────
+    let siswaSheet = ss.getSheetByName('siswa');
+    if (!siswaSheet) {
+      siswaSheet = ss.insertSheet('siswa');
+      siswaSheet.appendRow([
+        'Nama Lengkap', 'NISN', 'Jenis Kelamin', 'Tanggal Lahir',
+        'Agama', 'Nama Ayah', 'Nama Ibu', 'No Handphone', 'Kelas', 'Alamat',
+        'Foto Profil'
+      ]);
+      siswaSheet.appendRow([
+        'Ahmad Rizki', '1234567890', 'Laki-laki', '2008-05-15',
+        'Islam', 'Budi Santoso', 'Siti Aminah', '081234567890',
+        'VI B', 'Jl. Merdeka No. 10, Bengkulu', ''
+      ]);
+    }
+    // Migrasi: pastikan header kolom K (Foto Profil) ada juga untuk sheet lama
+    if (!siswaSheet.getRange(1, 11).getValue()) siswaSheet.getRange(1, 11).setValue('Foto Profil');
+    // Styling header – hijau teal
+    applyProfessionalHeader(
+      siswaSheet,
+      siswaSheet.getRange(1, 1, 1, 11),
+      '#0d5c4a', '#FFFFFF'
+    );
+
+    // ── 3. Sheet 'absensi' ──────────────────────────────────────
+    let absensiSheet = ss.getSheetByName('absensi');
+    if (!absensiSheet) {
+      absensiSheet = ss.insertSheet('absensi');
+      absensiSheet.appendRow([
+        'Tanggal', 'NISN', 'Nama', 'Kelas',
+        'Jam Datang', 'Jam Pulang', 'Keterangan Waktu', 'Status', 'Jam Sholat'
+      ]);
+    }
+    // Styling header – ungu gelap
+    applyProfessionalHeader(
+      absensiSheet,
+      absensiSheet.getRange(1, 1, 1, 9),
+      '#3b1f6b', '#FFFFFF'
+    );
+
+    // ── 4. Sheet 'hari_libur' ───────────────────────────────────
+    let liburSheet = ss.getSheetByName('hari_libur');
+    if (!liburSheet) {
+      liburSheet = ss.insertSheet('hari_libur');
+      liburSheet.appendRow(['Tanggal', 'Keterangan']);
+      liburSheet.getRange('A:A').setNumberFormat('dd-MM-yyyy');
+    }
+    // Styling header – merah marun
+    applyProfessionalHeader(
+      liburSheet,
+      liburSheet.getRange(1, 1, 1, 2),
+      '#7b1c1c', '#FFFFFF'
+    );
+
+    // ── 5. Sheet 'konfigurasi' ──────────────────────────────────
+    let configSheet = ss.getSheetByName('konfigurasi');
+    if (!configSheet) {
+      configSheet = ss.insertSheet('konfigurasi');
+
+      // Header kolom A–C (pengaturan)
+      configSheet.getRange(1, 1).setValue('Key');
+      configSheet.getRange(1, 2).setValue('Value');
+      configSheet.getRange(1, 3).setValue('Keterangan');
+
+      // Default Config rows
+      const defaultJadwal = {
+        "1": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+        "2": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+        "3": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+        "4": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+        "5": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+        "6": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+        "7": {"libur":true, "masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"}
+      };
+      configSheet.appendRow(['jadwal_harian', JSON.stringify(defaultJadwal), 'Jadwal per hari (JSON)']);
+      // Mode absensi default
+      configSheet.appendRow(['mode_absen', 'masuk_pulang', 'Mode: masuk_saja | masuk_pulang | masuk_sholat_pulang']);
+    } else {
+      // Jika sheet sudah ada tapi belum punya key mode_absen, tambahkan otomatis
+      const existingConfigData = configSheet.getDataRange().getValues();
+      const hasMode = existingConfigData.some(r => r[0] === 'mode_absen');
+      if (!hasMode) {
+        configSheet.appendRow(['mode_absen', 'masuk_pulang', 'Mode: masuk_saja | masuk_pulang | masuk_sholat_pulang']);
+      }
+    }
+
+    // ── 6. Sheet 'absensi_sholat' ───────────────────────────────
+    let sholatSheet = ss.getSheetByName('absensi_sholat');
+    if (!sholatSheet) {
+      sholatSheet = ss.insertSheet('absensi_sholat');
+      sholatSheet.appendRow([
+        'Tanggal', 'NISN', 'Nama', 'Kelas',
+        'Waktu Sholat', 'Status', 'Keterangan', 'Input Oleh',
+        'Jam Input', 'Izin Edit Siswa'
+      ]);
+    }
+    // Migrasi: pastikan header kolom I & J ada juga untuk sheet lama yang sudah ada
+    // (kolom I = jam input dibuat di fitur sebelumnya, kolom J = flag izin edit siswa)
+    if (!sholatSheet.getRange(1, 9).getValue()) sholatSheet.getRange(1, 9).setValue('Jam Input');
+    if (!sholatSheet.getRange(1, 10).getValue()) sholatSheet.getRange(1, 10).setValue('Izin Edit Siswa');
+    // Styling header – hijau tua islami
+    applyProfessionalHeader(
+      sholatSheet,
+      sholatSheet.getRange(1, 1, 1, 10),
+      '#1a4731', '#FFFFFF'
+    );
+
+    // Header kolom E: Daftar Kelas (selalu pastikan ada, meski sheet sudah exist)
+    const daftarKelasHeader = configSheet.getRange(1, 5);
+    if (!daftarKelasHeader.getValue()) {
+      daftarKelasHeader.setValue('Daftar Kelas');
+    }
+
+    // Styling header A–C (pengaturan) – slate abu-biru
+    applyProfessionalHeader(
+      configSheet,
+      configSheet.getRange(1, 1, 1, 3),
+      '#263445', '#FFFFFF'
+    );
+
+    // Styling header E (Daftar Kelas) – emas gelap, terpisah dan mencolok
+    const kelasHeaderCell = configSheet.getRange(1, 5);
+    kelasHeaderCell
+      .setBackground('#7d5a00')
+      .setFontColor('#FFFFFF')
+      .setFontWeight('bold')
+      .setFontSize(11)
+      .setFontFamily('Arial')
+      .setHorizontalAlignment('center')
+      .setVerticalAlignment('middle')
+      .setBorder(true, true, true, true, true, true, '#ffffff', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+    configSheet.setRowHeight(1, 36);
+    configSheet.setColumnWidth(5, 130);
+    // Kolom D sengaja dibiarkan kosong sebagai pemisah visual
+    configSheet.setColumnWidth(4, 30);
+
+    return { success: true, message: 'Setup database berhasil. Header semua sheet telah ditata secara profesional.' };
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+// ====================================
+// ABSENSI SHOLAT
+// ====================================
+
+/**
+ * Submit absensi sholat satu kelas untuk satu waktu sholat dan tanggal.
+ * dataList: [{ nisn, nama, kelas, status, keterangan }]
+ * waktuSholat: 'Subuh'|'Dhuha'|'Dzuhur'|'Ashar'|'Maghrib'|'Isya'
+ */
+function submitAbsensiSholat(dataList, tanggal, waktuSholat, namaPengirim) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('absensi_sholat');
+    if (!sheet) return { success: false, message: 'Sheet absensi_sholat tidak ditemukan. Jalankan Setup dahulu.' };
+    if (!dataList || !dataList.length) return { success: false, message: 'Data kosong.' };
+
+    // ── CEK HARI LIBUR ────────────────────────────────────────────────────
+    const todayStr = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    if (tanggal === todayStr) {
+      const configResult = getAppConfig();
+      const config = configResult.success ? configResult.data : {};
+      const dayIndex = formatWaktuSheet(new Date(), 'u');
+      const dayNames = {'1':'Senin','2':'Selasa','3':'Rabu','4':'Kamis','5':'Jumat','6':'Sabtu','7':'Minggu'};
+
+      // Cek jadwal_harian
+      if (config.jadwal_harian) {
+        const sc = config.jadwal_harian[dayIndex];
+        if (!sc || sc.libur) {
+          return { success: false, message: `Gagal! Hari ${dayNames[dayIndex]||''} adalah hari libur. Absensi sholat tidak bisa diinput.` };
+        }
+      }
+
+      // Cek tanggal merah di sheet hari_libur
+      const liburSheet = ss.getSheetByName('hari_libur');
+      if (liburSheet) {
+        const liburData = liburSheet.getDataRange().getValues();
+        for (let i = 1; i < liburData.length; i++) {
+          if (!liburData[i][0]) continue;
+          if (formatWaktuSheet(new Date(liburData[i][0]), 'yyyy-MM-dd') === todayStr) {
+            return { success: false, message: `Gagal! Hari ini libur: ${liburData[i][1]}. Absensi sholat tidak bisa diinput.` };
+          }
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
+    // PERBAIKAN: dulu kode ini pakai satu "kelas" saja (kelas siswa pertama di
+    // daftar) untuk mencocokkan baris yang mau ditimpa. Akibatnya kalau admin
+    // input lewat mode "Semua Kelas" (siswa dari kelas berbeda-beda dalam satu
+    // batch), baris lama milik siswa dari kelas LAIN tidak pernah kehapus,
+    // sehingga tiap kali disimpan ulang datanya numpuk/dobel. Sekarang kita
+    // cocokkan per-siswa: tanggal + NISN + waktu sholat yang sama = timpa,
+    // apa pun kelasnya.
+    const nisnStatusMap = {};
+    dataList.forEach(d => { nisnStatusMap[String(d.nisn).trim()] = true; });
+
+    // Hapus data lama untuk (tanggal + NISN + waktu sholat) yang sama, per siswa
+    const existing = sheet.getDataRange().getValues();
+    const toDelete = [];
+    for (let i = 1; i < existing.length; i++) {
+      if (!existing[i][0]) continue;
+      const rowDate   = formatWaktuSheet(new Date(existing[i][0]), 'yyyy-MM-dd');
+      const rowWaktu  = String(existing[i][4]).trim();
+      const rowNisn   = String(existing[i][1]).replace(/^'/, '').trim();
+      if (rowDate === tanggal && rowWaktu === waktuSholat && nisnStatusMap[rowNisn]) {
+        toDelete.push(i + 1);
+      }
+    }
+    for (let r = toDelete.length - 1; r >= 0; r--) sheet.deleteRow(toDelete[r]);
+
+    // Tulis baris baru
+    // Kolom ke-9 (index 8) menyimpan jam/tanggal persis saat data disimpan,
+    // dipakai oleh fitur "Detail Per Siswa" agar bisa menampilkan jam kehadiran/izin.
+    const jamInput = formatWaktuSheet(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const newRows = dataList.map(d => [
+      tanggal,
+      "'" + String(d.nisn).trim(),
+      d.nama,
+      d.kelas,
+      waktuSholat,
+      d.status,        // 'Hadir' | 'Tidak Hadir'
+      d.keterangan || '',
+      namaPengirim || 'Guru',
+      jamInput
+    ]);
+
+    if (newRows.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 9).setValues(newRows);
+    }
+
+    return { success: true, message: `${newRows.length} data absensi sholat berhasil disimpan.` };
+  } catch (e) {
+    return { success: false, message: 'Gagal: ' + e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Ambil rekap absensi sholat.
+ * filterKelas : string kelas atau null (semua)
+ * filterBulan : 'yyyy-MM' atau null (hari ini)
+ */
+function getRekapSholat(filterKelas, filterBulan, filterWaktu) {
+  try {
+    const ss = getSpreadsheet();
+    const sholatSheet = ss.getSheetByName('absensi_sholat');
+    if (!sholatSheet) return { success: false, message: 'Sheet absensi_sholat tidak ditemukan.' };
+
+    const today = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    const bulan = filterBulan || today.substring(0, 7);
+
+    // 1. Baca semua catatan absensi sholat sesuai filter
+    const sholatData = sholatSheet.getDataRange().getValues();
+    const recordMap = {}; // key: "tanggal|nisn|waktu" -> record
+    const dateWaktuKelasSet = new Set(); // key: "tanggal|waktu|kelas"
+
+    for (let i = 1; i < sholatData.length; i++) {
+      if (!sholatData[i][0]) continue;
+      const rowDate  = formatWaktuSheet(new Date(sholatData[i][0]), 'yyyy-MM-dd');
+      if (rowDate.substring(0, 7) !== bulan) continue;
+      const rowKelas = String(sholatData[i][3]).trim();
+      const rowWaktu = String(sholatData[i][4]).trim();
+      if (filterKelas && rowKelas !== filterKelas) continue;
+      if (filterWaktu && rowWaktu !== filterWaktu) continue;
+      const nisn = String(sholatData[i][1]).replace(/^'/, '').trim();
+      recordMap[rowDate + '|' + nisn + '|' + rowWaktu] = {
+        tanggal    : rowDate,
+        nisn       : nisn,
+        nama       : sholatData[i][2],
+        kelas      : rowKelas,
+        waktuSholat: rowWaktu,
+        status     : sholatData[i][5],
+        keterangan : sholatData[i][6],
+        inputOleh  : sholatData[i][7]
+      };
+      dateWaktuKelasSet.add(rowDate + '|' + rowWaktu + '|' + rowKelas);
+    }
+
+    // 2. Jika ada filter kelas, ambil semua siswa kelas itu
+    //    untuk setiap kombinasi tanggal+waktu yang ada, siswa belum tercatat = "Belum Absen"
+    const rows = Object.values(recordMap);
+
+    if (filterKelas && dateWaktuKelasSet.size > 0) {
+      const siswaSheet = ss.getSheetByName('siswa');
+      if (siswaSheet) {
+        const siswaData = siswaSheet.getDataRange().getValues();
+        const siswaDiKelas = [];
+        for (let i = 1; i < siswaData.length; i++) {
+          if (!siswaData[i][0]) continue;
+          const kelasRow = String(siswaData[i][8]).trim();
+          if (kelasRow !== filterKelas) continue;
+          siswaDiKelas.push({
+            nisn : String(siswaData[i][1]).replace(/^'/, '').trim(),
+            nama : String(siswaData[i][0])
+          });
+        }
+        dateWaktuKelasSet.forEach(key => {
+          const parts = key.split('|');
+          const tgl = parts[0], wkt = parts[1];
+          siswaDiKelas.forEach(s => {
+            const mapKey = tgl + '|' + s.nisn + '|' + wkt;
+            if (!recordMap[mapKey]) {
+              rows.push({
+                tanggal    : tgl,
+                nisn       : s.nisn,
+                nama       : s.nama,
+                kelas      : filterKelas,
+                waktuSholat: wkt,
+                status     : 'Belum Absen',
+                keterangan : '-',
+                inputOleh  : '-'
+              });
+            }
+          });
+        });
+      }
+    }
+
+    // Urutkan: tanggal asc -> urutan waktu sholat -> nama asc
+  const waktuOrder = { Subuh:1, Dhuha:2, 'Dzuhur & Ashar':3, Maghrib:4, Isya:5 };
+    rows.sort((a, b) => {
+      if (a.tanggal !== b.tanggal) return a.tanggal.localeCompare(b.tanggal);
+      const wa = waktuOrder[a.waktuSholat] || 9;
+      const wb = waktuOrder[b.waktuSholat] || 9;
+      if (wa !== wb) return wa - wb;
+      return a.nama.localeCompare(b.nama);
+    });
+
+    return { success: true, data: rows };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+function getRekapBulananSholat(bulan, tahun, kelasFilter) {
+  try {
+    const ss = getSpreadsheet();
+    const sholatSheet = ss.getSheetByName('absensi_sholat');
+    const siswaSheet  = ss.getSheetByName('siswa');
+    if (!sholatSheet || !siswaSheet) return { success: false, message: 'Sheet tidak ditemukan.' };
+
+    const year  = parseInt(tahun, 10);
+    const month = parseInt(bulan, 10); // 0-based (0=Jan)
+    if (isNaN(year) || isNaN(month)) {
+      return { success: false, message: 'Bulan/tahun tidak valid.' };
+    }
+    const startStr = formatWaktuSheet(new Date(year, month, 1), 'yyyy-MM-dd');
+    const endStr   = formatWaktuSheet(new Date(year, month + 1, 0), 'yyyy-MM-dd');
+
+    // Helper: normalisasi nama kelas supaya "7A", "7 A", "7a" dianggap sama.
+    // PERBAIKAN BUG: dropdown filter kelas di halaman ini diisi dari sheet
+    // 'konfigurasi' (master kelas), sedangkan kolom Kelas di sheet 'siswa'
+    // diketik manual/terpisah. Kalau keduanya beda spasi/huruf besar-kecil,
+    // filter lama (perbandingan string persis) gagal total dan tabel jadi
+    // kosong walau datanya sebenarnya ada.
+    const normKelas = (k) => String(k || '').trim().toUpperCase().replace(/\s+/g, ' ');
+
+    // 1. Ambil & filter siswa (support multi-kelas dipisah koma)
+    const rawSiswa = siswaSheet.getDataRange().getValues();
+    const fKelasList = kelasFilter
+      ? String(kelasFilter).split(',').map(k => normKelas(k)).filter(Boolean)
+      : [];
+    const siswaList = [];
+    for (let i = 1; i < rawSiswa.length; i++) {
+      if (!rawSiswa[i][0]) continue;
+      const kelasAsli = String(rawSiswa[i][8]).trim();
+      if (fKelasList.length > 0 && !fKelasList.includes(normKelas(kelasAsli))) continue;
+      // NISN dinormalisasi jadi string murni angka/huruf saja (buang tanda kutip
+      // atau spasi) supaya cocok dengan NISN yang tersimpan di sheet
+      // absensi_sholat, walau salah satu sumber menyimpannya sebagai angka.
+      const nisnBersih = String(rawSiswa[i][1]).replace(/^'/, '').trim();
+      siswaList.push({
+        nisn : nisnBersih,
+        nama : rawSiswa[i][0],
+        kelas: kelasAsli
+      });
+    }
+    siswaList.sort((a, b) => a.kelas.localeCompare(b.kelas) || a.nama.localeCompare(b.nama));
+
+    if (siswaList.length === 0) {
+      return {
+        success: true,
+        data: [],
+        waktuList: ['Subuh','Dhuha','Dzuhur','Ashar','Maghrib','Isya'],
+        periode: startStr + ' s/d ' + endStr,
+        message: kelasFilter
+          ? `Tidak ada siswa dengan kelas "${kelasFilter}". Pastikan nama kelas di menu "Kelola Kelas" sama persis dengan kolom Kelas di data siswa.`
+          : 'Sheet siswa kosong.'
+      };
+    }
+
+    // 2. Siapkan struktur rekap kosong per siswa per waktu sholat
+    const waktuList = ['Subuh','Dhuha','Dzuhur & Ashar','Maghrib','Isya'];
+    const rekapMap = {};
+    siswaList.forEach(s => {
+      rekapMap[s.nisn] = { perWaktu: {}, totalHadir: 0, totalIzin: 0, totalTidak: 0, totalTercatat: 0 };
+      waktuList.forEach(w => { rekapMap[s.nisn].perWaktu[w] = { hadir: 0, izin: 0, tidak: 0, total: 0 }; });
+    });
+
+    // 3. Loop data absensi_sholat, saring sesuai bulan
+    const data = sholatSheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const tglStr = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      if (tglStr < startStr || tglStr > endStr) continue;
+
+      const nisn = String(data[i][1]).replace(/^'/, '').trim();
+      if (!rekapMap[nisn]) continue; // di luar filter kelas
+
+      const waktu  = String(data[i][4]).trim();
+      const status = String(data[i][5]).trim();
+      if (!rekapMap[nisn].perWaktu[waktu]) {
+        rekapMap[nisn].perWaktu[waktu] = { hadir: 0, izin: 0, tidak: 0, total: 0 };
+      }
+
+      rekapMap[nisn].perWaktu[waktu].total++;
+      rekapMap[nisn].totalTercatat++;
+      if (status === 'Hadir') {
+        rekapMap[nisn].perWaktu[waktu].hadir++;
+        rekapMap[nisn].totalHadir++;
+      } else if (status === 'Izin / Uzur') {
+        // Izin (misalnya karena haid/uzur) tetap dianggap TERHITUNG sholatnya,
+        // sesuai kebijakan: siswa tidak dirugikan peringkatnya karena berhalangan syar'i.
+        // Tetap dicatat juga di totalIzin agar datanya masih bisa dibedakan di laporan.
+        rekapMap[nisn].perWaktu[waktu].izin++;
+        rekapMap[nisn].perWaktu[waktu].hadir++;
+        rekapMap[nisn].totalIzin++;
+        rekapMap[nisn].totalHadir++;
+      } else {
+        rekapMap[nisn].perWaktu[waktu].tidak++;
+        rekapMap[nisn].totalTidak++;
+      }
+    }
+
+    // 4. Susun hasil akhir
+    const result = siswaList.map(s => {
+      const r = rekapMap[s.nisn];
+      const persen = r.totalTercatat > 0 ? Math.round((r.totalHadir / r.totalTercatat) * 100) : 0;
+      return {
+        nisn: s.nisn, nama: s.nama, kelas: s.kelas,
+        perWaktu: r.perWaktu,
+        totalHadir: r.totalHadir, totalIzin: r.totalIzin,
+        totalTidak: r.totalTidak, totalTercatat: r.totalTercatat,
+        persen: persen
+      };
+    });
+
+    return { success: true, data: result, waktuList: waktuList, periode: startStr + ' s/d ' + endStr };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// ====================================
+// RANKING SHOLAT SISWA PER KELAS
+// ====================================
+// Menghasilkan peringkat siswa berdasarkan JUMLAH sholat yang tercatat
+// (totalHadir, termasuk izin/uzur yang tetap dihitung terlaksana) untuk bulan
+// berjalan (atau bulan/tahun tertentu), dikelompokkan per kelas.
+// Hanya menyertakan siswa yang PERNAH melaksanakan sholat (totalHadir > 0),
+// sesuai permintaan: ranking ini untuk siswa yang benar-benar sudah sholat.
+// PENTING: ranking TIDAK lagi berdasarkan persentase kehadiran, karena itu
+// membuat siswa dengan jumlah sholat banyak tapi persentase lebih rendah
+// (karena jumlah hari tercatat lebih banyak) malah ter-ranking di bawah
+// siswa yang jumlah sholatnya jauh lebih sedikit. Sekarang urutan murni
+// berdasarkan jumlah sholat terbanyak.
+function getRankingSholat(kelasFilter, bulan, tahun) {
+  try {
+    const now = new Date();
+    const bulanTarget = (bulan === undefined || bulan === null || bulan === '') ? now.getMonth() : parseInt(bulan, 10);
+    const tahunTarget = (tahun === undefined || tahun === null || tahun === '') ? now.getFullYear() : parseInt(tahun, 10);
+
+    const rekap = getRekapBulananSholat(bulanTarget, tahunTarget, kelasFilter || null);
+    if (!rekap.success) return rekap;
+
+    // Hanya siswa yang pernah tercatat "Hadir" sholat
+    const siswaSholat = rekap.data.filter(function (s) { return s.totalHadir > 0; });
+
+    // Kelompokkan per kelas
+    const perKelas = {};
+    siswaSholat.forEach(function (s) {
+      if (!perKelas[s.kelas]) perKelas[s.kelas] = [];
+      perKelas[s.kelas].push(s);
+    });
+
+    const kelasKeys = Object.keys(perKelas).sort(function (a, b) { return a.localeCompare(b); });
+
+    const result = kelasKeys.map(function (kelas) {
+      const arr = perKelas[kelas].slice().sort(function (a, b) {
+        // 1) Jumlah sholat tercatat terbanyak (patokan utama ranking).
+        if (b.totalHadir !== a.totalHadir) return b.totalHadir - a.totalHadir;
+        // 2) Jika jumlahnya sama, siswa dengan persentase kehadiran lebih tinggi menang.
+        if (b.persen !== a.persen) return b.persen - a.persen;
+        // 3) Lalu yang tidak hadirnya paling sedikit.
+        if (a.totalTidak !== b.totalTidak) return a.totalTidak - b.totalTidak;
+        return a.nama.localeCompare(b.nama);
+      });
+      arr.forEach(function (s, idx) { s.peringkat = idx + 1; });
+      return {
+        kelas: kelas,
+        totalSiswaSholat: arr.length,
+        siswa: arr.map(function (s) {
+          return {
+            peringkat: s.peringkat,
+            nisn: s.nisn,
+            nama: s.nama,
+            kelas: s.kelas,
+            totalHadir: s.totalHadir,
+            totalIzin: s.totalIzin,
+            totalTidak: s.totalTidak,
+            totalTercatat: s.totalTercatat,
+            persen: s.persen
+          };
+        })
+      };
+    });
+
+    return {
+      success: true,
+      data: result,
+      periode: rekap.periode,
+      bulan: bulanTarget,
+      tahun: tahunTarget
+    };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// Export rekap bulanan sholat ke Excel
+function generateExcelRekapSholatBulanan(bulan, tahun, kelasFilter) {
+  try {
+    const rekapResult = getRekapBulananSholat(bulan, tahun, kelasFilter);
+    if (!rekapResult.success) return rekapResult;
+
+    const monthNames = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+    const fileName = "Rekap Sholat " + monthNames[parseInt(bulan)] + " " + tahun + " - " + formatWaktuSheet(new Date(), 'ddMMyyyy_HHmm');
+    const ss = SpreadsheetApp.create(fileName);
+    const sheet = ss.getSheets()[0];
+    sheet.setName('Rekap Sholat Bulanan');
+
+    const waktuList = rekapResult.waktuList;
+    const header = ['No', 'Nama', 'NISN', 'Kelas'];
+    waktuList.forEach(w => header.push(w + ' (H/T)'));
+    header.push('Total Hadir', 'Total Izin', 'Total Tidak Hadir', 'Total Tercatat', '% Kehadiran');
+
+    sheet.getRange(1, 1, 1, header.length).setValues([header])
+      .setFontWeight('bold').setBackground('#0d5c4a').setFontColor('#FFFFFF')
+      .setHorizontalAlignment('center');
+
+    const rows = rekapResult.data.map((d, i) => {
+      const row = [i + 1, d.nama, "'" + d.nisn, d.kelas];
+      waktuList.forEach(w => {
+        const pw = d.perWaktu[w] || { hadir: 0, total: 0 };
+        row.push(pw.hadir + '/' + pw.total);
+      });
+      row.push(d.totalHadir, d.totalIzin, d.totalTidak, d.totalTercatat, d.persen + '%');
+      return row;
+    });
+
+    if (rows.length > 0) {
+      sheet.getRange(2, 1, rows.length, header.length).setValues(rows);
+    }
+    sheet.autoResizeColumns(1, header.length);
+    sheet.setFrozenRows(1);
+
+    const fileId = ss.getId();
+    // Coba buka akses "siapa saja dengan link" agar file bisa langsung diunduh.
+    // Dipisah dalam try/catch sendiri: sebagian akun/domain Google Workspace
+    // membatasi sharing eksternal dan akan melempar error di sini. Kalau itu
+    // terjadi, file Excel-nya TETAP berhasil dibuat (hanya saja hanya bisa
+    // dibuka oleh akun Google yang sama dengan yang menjalankan skrip ini),
+    // jadi export tidak boleh gagal total hanya gara-gara langkah sharing ini.
+    try {
+      DriveApp.getFileById(fileId).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareErr) {
+      // Abaikan; url export tetap dikembalikan di bawah.
+    }
+
+    return { success: true, url: "https://docs.google.com/spreadsheets/d/" + fileId + "/export?format=xlsx" };
+  } catch (e) {
+    return { success: false, message: 'Gagal membuat file Excel: ' + e.toString() };
+  }
+}
+
+/**
+ * ====================================================================
+ * DETAIL ABSENSI SHOLAT HARIAN PER SISWA
+ * ====================================================================
+ * Dipakai oleh fitur "Detail Per Siswa" di menu Rekap Bulanan Sholat:
+ * ketika nama siswa diklik, tampilkan rincian absensi sholat hari demi
+ * hari (tanggal, hari, waktu sholat, status, keterangan, jam tercatat)
+ * untuk siswa tsb pada bulan/tahun yang dipilih.
+ */
+/**
+ * PEMBERSIHAN DATA (MAINTENANCE): hapus data absensi sholat yang bermasalah
+ * di sheet 'absensi_sholat', untuk SELURUH siswa sekaligus. Dua kategori
+ * yang dihapus:
+ *
+ * 1. Baris "Dzuhur" saja atau "Ashar" saja (berdiri sendiri) — ini sisa
+ *    format lama sebelum waktu sholat siang digabung jadi satu kategori
+ *    "Dzuhur & Ashar". Aplikasi sekarang HANYA memakai "Dzuhur & Ashar",
+ *    jadi baris "Dzuhur"/"Ashar" berdiri sendiri selalu dianggap data usang
+ *    dan membuat rekap kehadiran jadi dobel/tidak sinkron.
+ *
+ * 2. Baris yang benar-benar duplikat: NISN + tanggal + waktu sholat yang
+ *    sama persis muncul lebih dari sekali. Untuk kasus ini, hanya baris
+ *    dengan jam input PALING BARU yang dipertahankan, sisanya dihapus.
+ *
+ * Waktu sholat lain (Subuh, Dhuha, Maghrib, Isya) TIDAK disentuh sama
+ * sekali karena itu memang kategori absensi yang berbeda/sah.
+ */
+function bersihkanDuplikatAbsensiSholat() {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('absensi_sholat');
+    if (!sheet) return { success: false, message: 'Sheet absensi_sholat tidak ditemukan.' };
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      return { success: true, message: 'Tidak ada data untuk diperiksa.', totalHapusStandalone: 0, totalHapusDuplikat: 0 };
+    }
+
+    const rowsToDelete = new Set();
+
+    // ── TAHAP 1: baris "Dzuhur" saja / "Ashar" saja (berdiri sendiri) ──
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const waktu = String(data[i][4]).trim();
+      if (waktu === 'Dzuhur' || waktu === 'Ashar') {
+        rowsToDelete.add(i); // simpan index array (bukan nomor baris sheet dulu)
+      }
+    }
+    const totalHapusStandalone = rowsToDelete.size;
+
+    // ── TAHAP 2: duplikat identik (nisn + tanggal + waktu sama persis) ──
+    // Dikerjakan terhadap baris yang TERSISA setelah tahap 1 (baris yang
+    // sudah ditandai hapus di tahap 1 diabaikan supaya tidak dihitung dobel).
+    const groupMap = {}; // key: nisn|tanggal|waktu -> [index array,...]
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      if (rowsToDelete.has(i)) continue;
+      const tglStr = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      const nisn   = String(data[i][1]).replace(/^'/, '').trim();
+      const waktu  = String(data[i][4]).trim();
+      const key = nisn + '|' + tglStr + '|' + waktu;
+      if (!groupMap[key]) groupMap[key] = [];
+      groupMap[key].push(i);
+    }
+
+    let totalHapusDuplikat = 0;
+    Object.keys(groupMap).forEach(key => {
+      const idxList = groupMap[key];
+      if (idxList.length <= 1) return; // tidak duplikat
+
+      // Pilih baris yang dipertahankan = jam input (kolom I / index 8) paling baru
+      let keepIdx = idxList[0];
+      let keepTime = new Date(data[keepIdx][8] || 0).getTime();
+      idxList.forEach(idx => {
+        const t = new Date(data[idx][8] || 0).getTime();
+        if (t > keepTime) { keepTime = t; keepIdx = idx; }
+      });
+
+      idxList.forEach(idx => {
+        if (idx !== keepIdx) {
+          rowsToDelete.add(idx);
+          totalHapusDuplikat++;
+        }
+      });
+    });
+
+    // ── EKSEKUSI HAPUS: urutkan dari baris paling bawah dulu ──
+    const rowNumbers = Array.from(rowsToDelete).map(idx => idx + 1); // ubah ke nomor baris sheet (1-based)
+    rowNumbers.sort((a, b) => b - a);
+    rowNumbers.forEach(r => sheet.deleteRow(r));
+
+    return {
+      success: true,
+      message: `Berhasil menghapus ${rowNumbers.length} baris data bermasalah (` +
+               `${totalHapusStandalone} baris "Dzuhur"/"Ashar" berdiri sendiri, ` +
+               `${totalHapusDuplikat} baris duplikat identik lainnya).`,
+      totalHapusStandalone: totalHapusStandalone,
+      totalHapusDuplikat: totalHapusDuplikat,
+      totalHapus: rowNumbers.length
+    };
+  } catch (e) {
+    return { success: false, message: 'Gagal: ' + e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getDetailHarianSholatSiswa(nisn, bulan, tahun) {
+  try {
+    const ss = getSpreadsheet();
+    const sholatSheet = ss.getSheetByName('absensi_sholat');
+    const siswaSheet  = ss.getSheetByName('siswa');
+    if (!sholatSheet || !siswaSheet) return { success: false, message: 'Sheet tidak ditemukan.' };
+
+    const year  = parseInt(tahun, 10);
+    const month = parseInt(bulan, 10); // 0-based (0=Jan)
+    if (isNaN(year) || isNaN(month)) return { success: false, message: 'Bulan/tahun tidak valid.' };
+
+    const nisnBersih = String(nisn).replace(/^'/, '').trim();
+    if (!nisnBersih) return { success: false, message: 'NISN tidak valid.' };
+
+    // Cari info siswa (nama & kelas) dari sheet siswa
+    const rawSiswa = siswaSheet.getDataRange().getValues();
+    let siswaInfo = null;
+    for (let i = 1; i < rawSiswa.length; i++) {
+      if (!rawSiswa[i][0]) continue;
+      const n = String(rawSiswa[i][1]).replace(/^'/, '').trim();
+      if (n === nisnBersih) {
+        siswaInfo = { nisn: n, nama: rawSiswa[i][0], kelas: String(rawSiswa[i][8]).trim() };
+        break;
+      }
+    }
+    if (!siswaInfo) return { success: false, message: 'Data siswa dengan NISN tersebut tidak ditemukan.' };
+
+    const startStr = formatWaktuSheet(new Date(year, month, 1), 'yyyy-MM-dd');
+    const endStr    = formatWaktuSheet(new Date(year, month + 1, 0), 'yyyy-MM-dd');
+    const dayNames  = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+    const waktuOrder = { Subuh: 1, Dhuha: 2, 'Dzuhur & Ashar': 3, Dzuhur: 3, Ashar: 4, Maghrib: 5, Isya: 6 };
+
+    const data = sholatSheet.getDataRange().getValues();
+    const records = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const rowNisn = String(data[i][1]).replace(/^'/, '').trim();
+      if (rowNisn !== nisnBersih) continue;
+
+      const tglDate = new Date(data[i][0]);
+      const tglStr  = formatWaktuSheet(tglDate, 'yyyy-MM-dd');
+      if (tglStr < startStr || tglStr > endStr) continue;
+
+      // Kolom ke-9 (index 8) = jam data disimpan. Data lama (sebelum fitur ini
+      // ada) belum punya kolom ini, jadi ditampilkan "-" jika kosong.
+      const jamRaw = data[i][8] || '';
+      let jamTampil = '-';
+      if (jamRaw) {
+        const jd = new Date(jamRaw);
+        jamTampil = !isNaN(jd.getTime()) ? formatWaktuSheet(jd, 'HH:mm:ss') : String(jamRaw);
+      }
+
+      const inputOlehRaw = data[i][7] || '';
+      const olehSiswaSendiri = String(inputOlehRaw).indexOf('Isi Mandiri') !== -1;
+      const flagIzin = data[i][9];
+      const izinEdit = flagIzin === true || String(flagIzin).trim().toUpperCase() === 'TRUE' || String(flagIzin).trim() === '1';
+
+      records.push({
+        rowIndex   : i + 1, // nomor baris di sheet (1-based), dipakai untuk fitur edit/hapus/izinkan
+        tanggal    : tglStr,
+        hari       : dayNames[tglDate.getDay()],
+        waktuSholat: String(data[i][4]).trim(),
+        status     : String(data[i][5]).trim(),
+        keterangan : data[i][6] || '',
+        inputOleh  : inputOlehRaw,
+        jam        : jamTampil,
+        olehSiswaSendiri: olehSiswaSendiri,
+        izinEdit   : izinEdit
+      });
+    }
+
+    records.sort((a, b) => {
+      if (a.tanggal !== b.tanggal) return a.tanggal.localeCompare(b.tanggal);
+      const wa = waktuOrder[a.waktuSholat] || 9;
+      const wb = waktuOrder[b.waktuSholat] || 9;
+      return wa - wb;
+    });
+
+    const totalHadir     = records.filter(r => r.status === 'Hadir').length;
+    const totalIzin      = records.filter(r => r.status === 'Izin / Uzur' || r.status === 'Izin').length;
+    const totalTercatat  = records.length;
+    const totalTidak     = totalTercatat - totalHadir - totalIzin;
+    const persen         = totalTercatat > 0 ? Math.round((totalHadir / totalTercatat) * 100) : 0;
+
+    return {
+      success  : true,
+      siswa    : siswaInfo,
+      periode  : startStr + ' s/d ' + endStr,
+      data     : records,
+      ringkasan: { totalHadir, totalIzin, totalTidak, totalTercatat, persen }
+    };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * EDIT satu baris absensi sholat harian (dari modal "Detail Per Siswa").
+ * rowIndex : nomor baris di sheet absensi_sholat (1-based), didapat dari getDetailHarianSholatSiswa.
+ * nisn     : dipakai sebagai validasi keamanan, memastikan baris yang diedit benar milik siswa ini.
+ */
+function updateAbsensiSholatSiswa(rowIndex, nisn, status, keterangan) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('absensi_sholat');
+    if (!sheet) return { success: false, message: 'Sheet absensi_sholat tidak ditemukan.' };
+
+    const rIndex = parseInt(rowIndex, 10);
+    if (!rIndex || rIndex < 2) return { success: false, message: 'Baris data tidak valid.' };
+
+    const statusValid = ['Hadir', 'Tidak Hadir', 'Izin / Uzur'];
+    if (statusValid.indexOf(status) === -1) {
+      return { success: false, message: 'Status tidak valid.' };
+    }
+
+    const lastRow = sheet.getLastRow();
+    if (rIndex > lastRow) return { success: false, message: 'Baris data sudah tidak ada (mungkin sudah dihapus/berubah). Silakan muat ulang.' };
+
+    // Validasi keamanan: pastikan baris ini benar milik NISN yang dimaksud
+    const rowNisn = String(sheet.getRange(rIndex, 2).getValue()).replace(/^'/, '').trim();
+    const nisnBersih = String(nisn).replace(/^'/, '').trim();
+    if (rowNisn !== nisnBersih) {
+      return { success: false, message: 'Data tidak cocok (mungkin urutan baris berubah). Silakan tutup dan buka kembali detail siswa, lalu coba lagi.' };
+    }
+
+    sheet.getRange(rIndex, 6).setValue(status);       // kolom F: Status
+    sheet.getRange(rIndex, 7).setValue(keterangan || ''); // kolom G: Keterangan
+
+    return { success: true, message: 'Data absensi sholat berhasil diperbarui.' };
+  } catch (e) {
+    return { success: false, message: 'Gagal: ' + e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * HAPUS satu baris absensi sholat harian (dari modal "Detail Per Siswa").
+ * Dipakai untuk membetulkan input yang salah/dobel.
+ */
+function hapusAbsensiSholatSiswa(rowIndex, nisn) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('absensi_sholat');
+    if (!sheet) return { success: false, message: 'Sheet absensi_sholat tidak ditemukan.' };
+
+    const rIndex = parseInt(rowIndex, 10);
+    if (!rIndex || rIndex < 2) return { success: false, message: 'Baris data tidak valid.' };
+
+    const lastRow = sheet.getLastRow();
+    if (rIndex > lastRow) return { success: false, message: 'Baris data sudah tidak ada (mungkin sudah dihapus). Silakan muat ulang.' };
+
+    // Validasi keamanan: pastikan baris ini benar milik NISN yang dimaksud sebelum dihapus
+    const rowNisn = String(sheet.getRange(rIndex, 2).getValue()).replace(/^'/, '').trim();
+    const nisnBersih = String(nisn).replace(/^'/, '').trim();
+    if (rowNisn !== nisnBersih) {
+      return { success: false, message: 'Data tidak cocok (mungkin urutan baris berubah). Silakan tutup dan buka kembali detail siswa, lalu coba lagi.' };
+    }
+
+    sheet.deleteRow(rIndex);
+
+    return { success: true, message: 'Data absensi sholat berhasil dihapus.' };
+  } catch (e) {
+    return { success: false, message: 'Gagal: ' + e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * EXPORT EXCEL: Detail absensi sholat harian 1 siswa (per bulan)
+ * Menghasilkan file Google Sheets terpisah + link download XLSX.
+ */
+function generateExcelDetailSholatSiswa(nisn, bulan, tahun) {
+  try {
+    const result = getDetailHarianSholatSiswa(nisn, bulan, tahun);
+    if (!result.success) return result;
+
+    const monthNames = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+    const s = result.siswa;
+    const fileName = "Detail Sholat - " + s.nama + " - " + monthNames[parseInt(bulan)] + " " + tahun +
+      " - " + formatWaktuSheet(new Date(), 'ddMMyyyy_HHmm');
+    const ss = SpreadsheetApp.create(fileName);
+    const sheet = ss.getSheets()[0];
+    sheet.setName('Detail Harian');
+
+    sheet.getRange("A1").setValue("DETAIL ABSENSI SHOLAT HARIAN")
+      .setFontWeight("bold").setFontSize(14).setFontColor("#1a4731");
+    sheet.getRange("A2").setValue("Nama: " + s.nama + "   |   NISN: " + s.nisn + "   |   Kelas: " + s.kelas)
+      .setFontWeight("bold").setFontSize(11);
+    sheet.getRange("A3").setValue("Periode: " + result.periode).setFontSize(10).setFontColor("#475569");
+
+    const startRow = 5;
+    const headers = ['No', 'Tanggal', 'Hari', 'Waktu Sholat', 'Status', 'Keterangan', 'Jam Tercatat', 'Diinput Oleh'];
+    sheet.getRange(startRow, 1, 1, headers.length).setValues([headers])
+      .setFontWeight('bold').setBackground('#1a4731').setFontColor('#FFFFFF')
+      .setHorizontalAlignment('center')
+      .setBorder(true, true, true, true, true, true, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID);
+
+    const rows = result.data.map((d, i) => [
+      i + 1, d.tanggal, d.hari, d.waktuSholat, d.status, d.keterangan, d.jam, d.inputOleh
+    ]);
+
+    if (rows.length > 0) {
+      sheet.getRange(startRow + 1, 1, rows.length, headers.length).setValues(rows);
+      sheet.getRange(startRow + 1, 1, rows.length, headers.length)
+        .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN)
+        .setHorizontalAlignment('center');
+      sheet.getRange(startRow + 1, 6, rows.length, 1).setHorizontalAlignment('left');
+      for (let i = 0; i < rows.length; i++) {
+        if (i % 2 === 1) sheet.getRange(startRow + 1 + i, 1, 1, headers.length).setBackground('#F0FDF4');
+      }
+    } else {
+      sheet.getRange(startRow + 1, 1).setValue('Tidak ada data absensi sholat pada periode ini.');
+    }
+
+    // Ringkasan di bawah tabel
+    const sumRow = startRow + rows.length + 2;
+    sheet.getRange(sumRow, 1).setValue('Ringkasan Periode Ini:').setFontWeight('bold').setFontColor('#1a4731');
+    sheet.getRange(sumRow + 1, 1).setValue('Total Hadir').setFontWeight('bold');
+    sheet.getRange(sumRow + 1, 2).setValue(result.ringkasan.totalHadir);
+    sheet.getRange(sumRow + 2, 1).setValue('Total Izin').setFontWeight('bold');
+    sheet.getRange(sumRow + 2, 2).setValue(result.ringkasan.totalIzin);
+    sheet.getRange(sumRow + 3, 1).setValue('Total Tidak Hadir').setFontWeight('bold');
+    sheet.getRange(sumRow + 3, 2).setValue(result.ringkasan.totalTidak);
+    sheet.getRange(sumRow + 4, 1).setValue('Persentase Kehadiran').setFontWeight('bold');
+    sheet.getRange(sumRow + 4, 2).setValue(result.ringkasan.persen + '%');
+
+    sheet.autoResizeColumns(1, headers.length);
+    sheet.setFrozenRows(startRow);
+
+    const fileId = ss.getId();
+    try {
+      DriveApp.getFileById(fileId).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareErr) {
+      // Abaikan jika kebijakan domain melarang sharing eksternal; file tetap dibuat.
+    }
+
+    return {
+      success: true,
+      url: "https://docs.google.com/spreadsheets/d/" + fileId + "/edit",
+      downloadUrl: "https://docs.google.com/spreadsheets/d/" + fileId + "/export?format=xlsx",
+      message: 'Excel detail siswa berhasil dibuat.'
+    };
+  } catch (e) {
+    return { success: false, message: 'Gagal generate Excel: ' + e.toString() };
+  }
+}
+
+/**
+ * Ambil data absensi sholat untuk kelas+tanggal+waktu tertentu
+ * (supaya frontend bisa pre-fill data yang sudah tersimpan)
+ */
+function getAbsensiSholatByKelas(kelas, tanggal, waktuSholat) {
+  try {
+    const ss    = getSpreadsheet();
+    const sheet = ss.getSheetByName('absensi_sholat');
+    if (!sheet) return { success: false, data: [] };
+
+    const data = sheet.getDataRange().getValues();
+    const map  = {}; // nisn -> {status, keterangan}
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const rowDate  = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      const rowKelas = String(data[i][3]).trim();
+      const rowWaktu = String(data[i][4]).trim();
+      const kelasMatch = (String(kelas).toUpperCase() === 'SEMUA') ? true : (rowKelas === kelas);
+      if (rowDate === tanggal && kelasMatch && rowWaktu === waktuSholat) {
+        const nisn = String(data[i][1]).replace(/^'/, '').trim();
+        map[nisn] = { status: data[i][5], keterangan: data[i][6] };
+      }
+    }
+    return { success: true, data: map };
+  } catch (e) {
+    return { success: false, data: {} };
+  }
+}
+
+// ====================================
+// KELOLA HARI LIBUR (BARU)
+// ====================================
+function getHariLibur() {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('hari_libur');
+    const data = sheet.getDataRange().getValues();
+    const list = [];
+    
+    // Loop dari baris 1 (lewati header)
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0]) {
+        let tgl = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+        list.push({
+          tanggal: tgl,
+          keterangan: data[i][1]
+        });
+      }
+    }
+    // Urutkan tanggal descending
+    list.sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+    return { success: true, data: list };
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+function addHariLibur(tanggal, keterangan) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('hari_libur');
+    
+    // Validasi input tanggal string (yyyy-mm-dd)
+    // Langsung simpan string-nya, jangan di-convert ke new Date() di script
+    sheet.appendRow([tanggal, keterangan]);
+    
+    // Format baris terakhir
+    sheet.getRange(sheet.getLastRow(), 1).setNumberFormat("dd-MM-yyyy");
+
+    return { success: true, message: 'Hari libur berhasil ditambahkan' };
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+/**
+ * Tambah hari libur untuk rentang tanggal (tanggalMulai s/d tanggalAkhir).
+ * Tanggal yang sudah ada di sheet akan dilewati (tidak duplikat).
+ * @param {string} tanggalMulai  - format yyyy-MM-dd
+ * @param {string} tanggalAkhir  - format yyyy-MM-dd
+ * @param {string} keterangan
+ */
+function addHariLiburRange(tanggalMulai, tanggalAkhir, keterangan) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('hari_libur');
+    if (!sheet) return { success: false, message: 'Sheet hari_libur tidak ditemukan.' };
+
+    // Validasi urutan tanggal
+    if (tanggalAkhir < tanggalMulai) {
+      return { success: false, message: 'Tanggal akhir tidak boleh sebelum tanggal mulai.' };
+    }
+
+    // Baca tanggal yang sudah ada agar tidak duplikat
+    const existing = sheet.getDataRange().getValues();
+    const existingSet = new Set();
+    for (let i = 1; i < existing.length; i++) {
+      if (!existing[i][0]) continue;
+      try {
+        existingSet.add(formatWaktuSheet(new Date(existing[i][0]), 'yyyy-MM-dd'));
+      } catch(e) {}
+    }
+
+    // Loop dari tanggalMulai sampai tanggalAkhir, tambah satu per satu
+    const rowsToAdd = [];
+    const dMulai = new Date(tanggalMulai + 'T00:00:00');
+    const dAkhir = new Date(tanggalAkhir + 'T00:00:00');
+    let skipped = 0;
+
+    for (let d = new Date(dMulai); d <= dAkhir; d.setDate(d.getDate() + 1)) {
+      const dStr = formatWaktuSheet(d, 'yyyy-MM-dd');
+      if (existingSet.has(dStr)) { skipped++; continue; }
+      rowsToAdd.push([dStr, keterangan]);
+    }
+
+    if (rowsToAdd.length === 0) {
+      return { success: false, message: `Semua ${skipped} tanggal sudah ada di daftar hari libur.` };
+    }
+
+    // Tulis sekaligus ke sheet
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, rowsToAdd.length, 2).setValues(rowsToAdd);
+    sheet.getRange(startRow, 1, rowsToAdd.length, 1).setNumberFormat('dd-MM-yyyy');
+
+    const msg = skipped > 0
+      ? `${rowsToAdd.length} hari libur berhasil ditambahkan (${skipped} tanggal sudah ada, dilewati).`
+      : `${rowsToAdd.length} hari libur berhasil ditambahkan.`;
+
+    return { success: true, message: msg, added: rowsToAdd.length, skipped };
+
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+function deleteHariLibur(tanggalStr) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('hari_libur');
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      let rowDate = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      if (rowDate === tanggalStr) {
+        sheet.deleteRow(i + 1);
+        return { success: true, message: 'Hari libur dihapus' };
+      }
+    }
+    return { success: false, message: 'Data tidak ditemukan' };
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+// ====================================
+// FITUR MONITORING & UPDATE STATUS (BARU)
+// ====================================
+
+// Function untuk mengambil data Monitoring (Versi Update: Pisah Terlambat & Pulang Cepat)
+function getMonitoringRealtime(filterKelas = null) {
+  try {
+    const ss = getSpreadsheet();
+    const todayStr = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    const siswaSheet = ss.getSheetByName('siswa');
+    const dataSiswa = siswaSheet.getDataRange().getValues();
+    const absensiSheet = ss.getSheetByName('absensi');
+    const dataAbsensi = absensiSheet.getDataRange().getValues();
+    
+    // Mapping data absensi hari ini
+    let absensiMap = {};
+    for (let i = 1; i < dataAbsensi.length; i++) {
+      let rowDate = dataAbsensi[i][0];
+      if (!rowDate) continue; // Skip baris kosong
+
+      let tgl = formatWaktuSheet(new Date(rowDate), 'yyyy-MM-dd');
+      let nisn = String(dataAbsensi[i][1]).trim();
+      
+      if (tgl === todayStr) {
+        absensiMap[nisn] = {
+          jamDatang: dataAbsensi[i][4],
+          jamPulang: dataAbsensi[i][5],
+          keterangan: dataAbsensi[i][6], // Kolom G (Index 6) -> Terlambat/Tepat Waktu
+          status: dataAbsensi[i][7]      // Kolom H (Index 7) -> Hadir/Sakit/Izin
+        };
+      }
+    }
+
+    // Support multi-kelas: filterKelas bisa string biasa atau "Kelas A,Kelas B"
+    const filterKelasList = filterKelas
+      ? String(filterKelas).split(',').map(k => k.trim()).filter(Boolean)
+      : null;
+
+    let result = [];
+      for (let i = 1; i < dataSiswa.length; i++) {
+      if (!String(dataSiswa[i][0]).trim() || !String(dataSiswa[i][1]).trim()) continue; // lewati baris kosong
+      let nama = dataSiswa[i][0];
+      let nisn = String(dataSiswa[i][1]).trim();
+      let kelas = String(dataSiswa[i][8]).trim();
+
+      // Filter Kelas (support multi)
+      if (filterKelasList && filterKelasList.length > 0 && !filterKelasList.includes(kelas)) continue;
+      
+      let statusInfo = absensiMap[nisn];
+      
+      // Default Value (Jika siswa belum absen)
+      let jamDatang = '-';
+      let jamPulang = '-';
+      let displayStatus = 'Belum Absen'; 
+      let keteranganWaktu = '-';         
+
+      if (statusInfo) {
+        // 1. Ambil Jam
+        if (statusInfo.jamDatang instanceof Date) {
+            jamDatang = formatWaktuSheet(statusInfo.jamDatang, 'HH:mm');
+        } else if (statusInfo.jamDatang) jamDatang = String(statusInfo.jamDatang);
+
+        if (statusInfo.jamPulang instanceof Date) {
+            jamPulang = formatWaktuSheet(statusInfo.jamPulang, 'HH:mm');
+        } else if (statusInfo.jamPulang) jamPulang = String(statusInfo.jamPulang);
+
+        // 2. Ambil Status & Keterangan LANGSUNG DARI SHEET
+        // Kita tidak mengubah logika di sini, kita percaya data di Sheet sudah benar
+        let rawKet = statusInfo.keterangan; 
+        let rawStat = statusInfo.status;
+
+        displayStatus = rawStat ? String(rawStat) : "";
+
+        // Logika tampilan Keterangan Waktu
+        if (rawKet && String(rawKet).trim() !== "") {
+            // Jika di sheet ada tulisan (misal: "Terlambat (900 m)"), tampilkan itu
+            keteranganWaktu = String(rawKet);
+        } else {
+            // Jika kosong di sheet, tapi status Hadir, anggap Tepat Waktu
+            if (displayStatus === 'Hadir') {
+                keteranganWaktu = 'Tepat Waktu';
+            } else {
+                keteranganWaktu = '-';
+            }
+        }
+      }
+
+      result.push({
+        nama: nama,
+        nisn: nisn,
+        kelas: kelas,
+        jamDatang: jamDatang,
+        jamPulang: jamPulang,
+        status: displayStatus,       // Dropdown
+        keterangan: keteranganWaktu  // Kolom Teks (Terlambat/Tepat Waktu)
+      });
+    }
+
+    // Sort: Kelas dulu, baru Nama
+    result.sort((a, b) => {
+      if (a.kelas === b.kelas) return a.nama.localeCompare(b.nama);
+      return a.kelas.localeCompare(b.kelas);
+    });
+    
+    return { success: true, data: result };
+
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+// 2. Update Status oleh Guru (Hadir/Izin/Sakit/Alpa)
+function updateAbsensiStatus(token, nisn, nama, kelas, newStatus) {
+  try {
+    // SATPAM: Hanya Guru atau Admin yang boleh ubah status manual
+    verifyUser(token, 'guru');
+    
+    const ss = getSpreadsheet();
+    const absensiSheet = ss.getSheetByName('absensi');
+    const todayStr = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    const data = absensiSheet.getDataRange().getValues();
+    
+    let found = false;
+    let rowIndex = -1;
+
+    for (let i = 1; i < data.length; i++) {
+      let tgl = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      let rowNisn = String(data[i][1]).trim();
+      
+      if (tgl === todayStr && rowNisn === String(nisn).trim()) {
+        found = true;
+        rowIndex = i + 1;
+        break;
+      }
+    }
+
+    if (found) {
+      // PERBAIKAN 1: Ubah dari kolom 7 ke kolom 8
+      // Kolom 7 = Keterangan Waktu
+      // Kolom 8 = Status (Hadir/Sakit/Izin/Alpa)
+      absensiSheet.getRange(rowIndex, 8).setValue(newStatus); 
+    } else {
+      let jamDatang = '-';
+      if (newStatus === 'Hadir') {
+        jamDatang = formatWaktuSheet(new Date(), 'HH:mm:ss');
+      }
+      
+      // PERBAIKAN 2: Sesuaikan urutan array appendRow agar masuk ke kolom yang benar
+      // Struktur: [Tanggal, NISN, Nama, Kelas, JamDt, JamPlg, Keterangan(Col 7), Status(Col 8)]
+      // Kita isi Keterangan (Col 7) dengan "-" atau kosong, lalu Status (Col 8) dengan newStatus
+      var tanggalSaja = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+      absensiSheet.appendRow([
+       tanggalSaja,
+        "'" + nisn, 
+        nama, 
+        kelas, 
+        jamDatang, 
+        '',   // Jam Pulang
+        '-',  // Kolom 7 (Keterangan Waktu) -> Diisi strip agar tidak error
+        newStatus // Kolom 8 (Status Kehadiran) -> Target yang benar
+      ]);
+    }
+
+    return { success: true, message: 'Status berhasil diubah' };
+  } catch (error) {
+    return { success: false, message: "Gagal: " + error.message };
+  }
+}
+
+function updateHariLibur(oldDateStr, newDateStr, newKeterangan) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('hari_libur');
+    const data = sheet.getDataRange().getValues();
+    
+    let found = false;
+    
+    // Loop dari baris 1 (lewati header)
+    for (let i = 1; i < data.length; i++) {
+      // Format tanggal dari sheet agar sama dengan format string input (yyyy-MM-dd)
+      let rowDate = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      
+      if (rowDate === oldDateStr) {
+        // Update baris: Kolom 1 (Tanggal), Kolom 2 (Keterangan)
+        // Gunakan new Date() untuk kolom tanggal agar format di sheet tetap Date Object
+        sheet.getRange(i + 1, 1, 1, 2).setValues([[new Date(newDateStr), newKeterangan]]);
+        found = true;
+        break;
+      }
+    }
+    
+    if (found) {
+      return { success: true, message: 'Hari libur berhasil diperbarui' };
+    } else {
+      return { success: false, message: 'Data tanggal lama tidak ditemukan' };
+    }
+    
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+// ====================================
+// FITUR EXPORT EXCEL
+// ====================================
+
+
+function getExportData(type, filters) {
+  const ss = getSpreadsheet();
+  
+  // ==========================================
+  // LOGIKA UMUM: MAPPING HARI LIBUR
+  // ==========================================
+  const liburSheet = ss.getSheetByName('hari_libur');
+  const holidayMap = {};
+  
+  if (liburSheet) {
+      const liburData = liburSheet.getDataRange().getValues();
+      for (let i = 1; i < liburData.length; i++) {
+          if (liburData[i][0]) {
+              try {
+                  let tglLibur = formatWaktuSheet(new Date(liburData[i][0]), 'yyyy-MM-dd');
+                  holidayMap[tglLibur] = liburData[i][1];
+              } catch(e) {}
+          }
+      }
+  }
+
+  // Load jadwal_harian untuk cek libur rutin (Sabtu, dll)
+  const _cfgEx = getAppConfig();
+  const _jadwalEx = (_cfgEx.success && _cfgEx.data.jadwal_harian) ? _cfgEx.data.jadwal_harian : null;
+  // Helper: JS getDay() (0=Min,1=Sen,...,6=Sab) → cek libur di jadwal_harian
+  function isRoutineHoliday(jsDay) {
+    if (!_jadwalEx) return jsDay === 0;
+    const key = jsDay === 0 ? '7' : String(jsDay);
+    const sc = _jadwalEx[key];
+    return !sc || sc.libur === true;
+  }
+  function getRoutineHolidayName(jsDay) {
+    const names = {'0':'Hari Minggu','1':'Senin','2':'Selasa','3':'Rabu','4':'Kamis','5':'Jumat','6':'Sabtu','7':'Hari Minggu'};
+    const key = jsDay === 0 ? '7' : String(jsDay);
+    return 'Libur Rutin: ' + (names[key] || '');
+  }
+
+  // ==========================================
+  // LOGIKA DATA: LAPORAN & MONITORING (DIGABUNG)
+  // ==========================================
+  // Karena sekarang Monitoring juga butuh rentang waktu dan multi-sheet,
+  // kita gunakan logika yang sama untuk keduanya.
+  if (type === 'laporan_absensi' || type === 'monitoring') {
+    const siswaSheet = ss.getSheetByName('siswa');
+    const absensiSheet = ss.getSheetByName('absensi');
+    
+    // --- A. AMBIL DATA SISWA ---
+    const rawSiswa = siswaSheet.getDataRange().getValues();
+    const siswaList = [];
+    const fKelas = filters.kelas || ""; // Filter kelas
+    // Support multi-kelas: "X IPA 1" atau "X IPA 1,X IPA 2"
+    const fKelasList = fKelas
+      ? String(fKelas).split(',').map(k => k.trim()).filter(Boolean)
+      : [];
+
+    for (let i = 1; i < rawSiswa.length; i++) {
+      if (!rawSiswa[i][0]) continue; // Skip header/kosong
+      
+      const sNama = rawSiswa[i][0];
+      const sNisn = String(rawSiswa[i][1]).trim();
+      const sKelas = String(rawSiswa[i][8]).trim();
+      
+      // Filter Kelas (support multi)
+      if (fKelasList.length > 0 && !fKelasList.includes(sKelas)) continue;
+      
+      siswaList.push({ nisn: sNisn, nama: sNama, kelas: sKelas });
+    }
+    
+    // Urutkan: Kelas dulu, baru Nama
+    siswaList.sort((a, b) => {
+        if (a.kelas === b.kelas) return a.nama.localeCompare(b.nama);
+        return a.kelas.localeCompare(b.kelas);
+    });
+
+    // --- B. MAPPING DATA ABSENSI ---
+    const rawAbsen = absensiSheet.getDataRange().getValues();
+    const absenMap = {};
+    
+    for (let i = 1; i < rawAbsen.length; i++) {
+      if (!rawAbsen[i][0]) continue;
+      
+      const tglStr = formatWaktuSheet(new Date(rawAbsen[i][0]), 'yyyy-MM-dd');
+      const nisn = String(rawAbsen[i][1]).trim();
+      const key = tglStr + '_' + nisn;
+
+      let jamDatang = rawAbsen[i][4];
+      if (jamDatang instanceof Date) jamDatang = formatWaktuSheet(jamDatang, 'HH:mm:ss');
+      else if (jamDatang) jamDatang = String(jamDatang);
+      
+      let jamPulang = rawAbsen[i][5];
+      if (jamPulang && jamPulang instanceof Date) jamPulang = formatWaktuSheet(jamPulang, 'HH:mm:ss');
+      else if (jamPulang) jamPulang = String(jamPulang);
+
+      absenMap[key] = {
+        jamDatang: jamDatang || '-',
+        jamPulang: jamPulang || '-',
+        keterangan: rawAbsen[i][6] || '-',
+        status: rawAbsen[i][7] || 'Hadir'
+      };
+    }
+
+    // --- C. GENERATE DATA (LOOP TANGGAL) ---
+    // Gunakan tanggal hari ini sebagai fallback jika filter kosong
+    const today = new Date();
+    const start = filters.tanggalMulai ? new Date(filters.tanggalMulai) : today;
+    const end = filters.tanggalAkhir ? new Date(filters.tanggalAkhir) : today;
+    
+    const logData = [];
+    let noLog = 1;
+    const rekapData = [];
+    const dateHeaders = [];
+
+    // 1. Siapkan Header Tanggal untuk Sheet 2 (Rekap)
+    // Loop temp untuk header
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        dateHeaders.push(d.getDate());
+    }
+
+    // 2. Loop Utama (Siswa x Tanggal)
+    // Reset tanggal loop karena loop header di atas sudah memajukan tanggal 'd'
+    const loopStart = new Date(start);
+    const loopEnd = new Date(end);
+    const todayStr = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+
+    for (let s = 0; s < siswaList.length; s++) {
+        const siswa = siswaList[s];
+        let countSakit = 0, countIzin = 0, countAlpha = 0;
+        
+        // Baris Awal Rekap (No, Nama, NISN, Kelas)
+        const rowRekap = [s + 1, siswa.nama, "'" + siswa.nisn, siswa.kelas];
+
+        // Loop Tanggal
+        for (let d = new Date(loopStart); d <= loopEnd; d.setDate(d.getDate() + 1)) {
+            const dateStr = formatWaktuSheet(d, 'yyyy-MM-dd');
+            const dateDisplay = formatWaktuSheet(d, 'dd-MM-yyyy');
+            const holidayName = holidayMap[dateStr];
+            // Cek libur rutin dari jadwal_harian (termasuk Sabtu, dll)
+            const isRoutineOff = isRoutineHoliday(d.getDay());
+            const key = dateStr + '_' + siswa.nisn;
+            const dataAbsen = absenMap[key];
+
+            let statusFinal = '', ketFinal = '', codeDisplay = '';
+            let jamDt = '-', jamPlg = '-';
+
+            if (dataAbsen) {
+                // KASUS 1: Ada Data Absen
+                statusFinal = dataAbsen.status;
+                ketFinal = dataAbsen.keterangan;
+                jamDt = dataAbsen.jamDatang;
+                jamPlg = dataAbsen.jamPulang;
+            } else {
+                // KASUS 2: Tidak Ada Data
+                if (holidayName) { 
+                    statusFinal = 'Libur'; 
+                    ketFinal = holidayName; 
+                } else if (isRoutineOff) { 
+                    // Libur rutin dari jadwal_harian (Sabtu, Minggu, dll)
+                    statusFinal = 'Libur'; 
+                    ketFinal = getRoutineHolidayName(d.getDay()); 
+                } else { 
+                    // Cek Masa Depan
+                    if (dateStr > todayStr) {
+                         statusFinal = ''; // Kosongkan jika tanggal belum terjadi
+                    } else {
+                         statusFinal = 'Belum Absen'; 
+                         ketFinal = 'Tanpa Keterangan';
+                    }
+                }
+            }
+            
+            // Rapikan keterangan jika kosong tapi hadir
+            if ((!ketFinal || ketFinal === '-') && statusFinal === 'Hadir') {
+                ketFinal = 'Tepat Waktu';
+            }
+
+            // Hitung Kode Matrix (Sheet 2) & Statistik
+            if (statusFinal === 'Hadir') codeDisplay = 'H';
+            else if (statusFinal === 'Sakit') { codeDisplay = 'S'; countSakit++; }
+            else if (statusFinal === 'Izin') { codeDisplay = 'I'; countIzin++; }
+            else if (statusFinal === 'Alpha' || statusFinal === 'Belum Absen' || statusFinal === 'Alpa') { codeDisplay = 'A'; countAlpha++; }
+            else if (statusFinal === 'Libur') codeDisplay = 'L';
+            else codeDisplay = '-';
+
+            // Masukkan ke Log Detail (Sheet 1)
+            // Hanya masukkan jika status tidak kosong (bukan masa depan) atau jika user ingin semua
+            if (statusFinal !== '') {
+                logData.push([
+                    noLog++, dateDisplay, "'" + siswa.nisn, siswa.nama, siswa.kelas,
+                    jamDt, jamPlg, ketFinal, statusFinal
+                ]);
+            }
+
+            // Masukkan Kode ke Baris Rekap (Sheet 2)
+            rowRekap.push(codeDisplay);
+        }
+        
+        // Reset tanggal loop untuk iterasi siswa berikutnya
+        // (Penting: d.setDate mengubah object Date asli, jadi harus di-reset manual atau buat object baru setiap loop)
+        // Cara paling aman di Google Apps Script:
+        // Kita tidak perlu reset manual jika loop tanggal ada DI DALAM loop siswa dan menggunakan variabel baru
+        // TAPI karena loop di atas menggunakan variabel 'd' yg dideklarasikan di for, kita perlu reset logicnya.
+        // *Perbaikan Logic Loop*:
+        // Di atas saya pakai `d = new Date(loopStart)` di awal loop siswa tapi sintaks for loop `d <= loopEnd` 
+        // akan mengubah `d` sampai akhir. Jadi untuk siswa berikutnya `d` harus di-init ulang.
+        
+        // Karena logic di atas pakai `for` standar, `d` akan di-reinitialisasi di setiap iterasi `siswaList` 
+        // KARENA saya menaruh `for (let d = new Date(loopStart)...` DI DALAM loop siswa. 
+        // Jadi logic ini SUDAH BENAR.
+
+        // Tambahkan Total Statistik ke Baris Rekap
+        rowRekap.push(countSakit, countIzin, countAlpha);
+        rekapData.push(rowRekap);
+    }
+
+    const titleSheet1 = (type === 'monitoring') ? 'Data Monitoring' : 'Detail Log';
+
+    return {
+        mode: 'multi_sheet',
+        periode: `${formatWaktuSheet(start, 'dd MMM yyyy')} - ${formatWaktuSheet(end, 'dd MMM yyyy')}`,
+        sheet1: { name: titleSheet1, data: logData },
+        sheet2: { name: 'Rekap Absensi', data: rekapData, dateHeaders: dateHeaders }
+    };
+  }
+  
+  return [];
+}
+
+function generateExcel(type, filters) {
+  try {
+    var timestamp = formatWaktuSheet(new Date(), 'dd-MM-yyyy HHmm');
+    var fileName = "";
+    var ss;
+    
+    // --- SKENARIO 1: LAPORAN BULANAN (FORMAT MATRIKS) ---
+    if (type === 'laporan_bulanan') {
+        var monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+        fileName = "Rekap Absensi " + monthNames[filters.bulan] + " " + filters.tahun + " - " + timestamp;
+        
+        ss = SpreadsheetApp.create(fileName);
+        
+        var res = getMonthlyReportData(filters.bulan, filters.tahun, filters.kelas);
+        if (!res.success) throw new Error(res.message);
+        
+        var data = res.data;
+        var sheet = ss.getSheetByName('Sheet1');
+        sheet.setName('Rekap Bulanan');
+
+        // 1. HEADER JUDUL (Tanpa Merge agar aman)
+        sheet.getRange("A1").setValue("REKAPITULASI KEHADIRAN BULANAN").setFontWeight("bold").setFontSize(14);
+        sheet.getRange("A2").setValue("Bulan: " + monthNames[filters.bulan] + " " + filters.tahun).setFontWeight("bold").setFontSize(11);
+        
+        // 2. SETUP HEADER TABEL
+        var startRow = 4;
+        sheet.getRange(startRow, 1).setValue("No");
+        sheet.getRange(startRow, 2).setValue("Nama Siswa");
+        sheet.getRange(startRow, 3).setValue("NISN");
+        
+        // Variable untuk menyimpan index kolom libur
+        var holidayCols = [];
+        var daysCount = data.daysInMonth;
+        
+        // Ambil sample data libur dari siswa pertama (jika ada)
+        // Atau hitung ulang manual jika data kosong (tapi biasanya loop tetap jalan)
+        var sampleDaily = (data.students.length > 0) ? data.students[0].dailyCodes : [];
+
+        // Loop Header Tanggal
+        for(var d=1; d<=daysCount; d++){
+            var colIndex = 3 + d;
+            var cell = sheet.getRange(startRow, colIndex);
+            cell.setValue(d);
+            
+            // Cek Libur dari Data
+            // (index sampleDaily adalah d-1)
+            if (sampleDaily.length >= d && sampleDaily[d-1].isHoliday) {
+                holidayCols.push(colIndex); // Simpan index kolom libur
+                // Warnai Header Tanggal Merah
+                cell.setBackground('#FFEBEE').setFontColor('#D32F2F'); 
+            }
+        }
+        
+        // Header Statistik
+        var colStat = 3 + daysCount + 1;
+        var headersStat = ["H", "S", "I", "A", "%"];
+        sheet.getRange(startRow, colStat, 1, 5).setValues([headersStat]);
+
+        // Style Header Utama (Biru)
+        // Kecuali kolom tanggal yang sudah diwarnai merah tadi, kita timpa warna default biru
+        // Tapi agar rapi, kita set biru dulu semua, baru timpa merah untuk libur
+        var totalCols = colStat + 4;
+        
+        // Set Default Biru untuk semua
+        sheet.getRange(startRow, 1, 1, totalCols)
+             .setBackground('#4F46E5')
+             .setFontColor('#FFFFFF')
+             .setFontWeight('bold')
+             .setHorizontalAlignment('center')
+             .setBorder(true, true, true, true, true, true, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID);
+
+        // TIMPA WARNA HEADER HARI LIBUR (Merah Muda)
+        if (holidayCols.length > 0) {
+            for (var k = 0; k < holidayCols.length; k++) {
+                sheet.getRange(startRow, holidayCols[k])
+                     .setBackground('#FFEBEE') // Background Merah Muda
+                     .setFontColor('#D32F2F'); // Teks Merah Tua
+            }
+        }
+        
+        // 3. ISI DATA
+        var rows = [];
+        data.students.forEach((siswa, idx) => {
+            var row = [idx + 1, siswa.nama, "'" + siswa.nisn];
+            siswa.dailyCodes.forEach(day => {
+                row.push(day.code); 
+            });
+            row.push(siswa.stats.h, siswa.stats.s, siswa.stats.i, siswa.stats.a, siswa.stats.percent + "%");
+            rows.push(row);
+        });
+
+        if(rows.length > 0) {
+            var startBody = startRow + 1;
+            var numRows = rows.length;
+            
+            sheet.getRange(startBody, 1, numRows, rows[0].length).setValues(rows);
+            
+            // Formatting Body
+            var bodyRange = sheet.getRange(startBody, 1, numRows, totalCols);
+            bodyRange.setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+            bodyRange.setHorizontalAlignment('center');
+            sheet.getRange(startBody, 2, numRows, 1).setHorizontalAlignment('left'); 
+
+            // WARNAI KOLOM LIBUR SECARA VERTIKAL (Full Column Color)
+            if (holidayCols.length > 0) {
+                for (var k = 0; k < holidayCols.length; k++) {
+                    // Warnai dari baris data pertama sampai terakhir pada kolom tersebut
+                    sheet.getRange(startBody, holidayCols[k], numRows, 1)
+                         .setBackground('#FFEBEE'); // Merah Muda Lembut
+                }
+            }
+
+            // Conditional Formatting (Warna Kode Absen)
+            var rangeDataDays = sheet.getRange(startBody, 4, numRows, daysCount);
+            var rules = sheet.getConditionalFormatRules();
+            
+            // A = Alpha (Background Merah, Text Putih/MerahTua agar kontras dari libur)
+            rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("A")
+                .setBackground("#EF4444") // Merah Terang
+                .setFontColor("#FFFFFF")  // Putih
+                .setBold(true)
+                .setRanges([rangeDataDays]).build());
+                
+            // S = Sakit (Kuning)
+            rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("S")
+                .setBackground("#FEF08A").setFontColor("#854D0E").setBold(true).setRanges([rangeDataDays]).build());
+                
+            // I = Izin (Biru)
+            rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("I")
+                .setBackground("#BFDBFE").setFontColor("#1E40AF").setBold(true).setRanges([rangeDataDays]).build());
+
+            // L = Libur (Text Only, background sudah dihandle via kolom vertikal di atas)
+            // Kita samarkan text "L" jika ada, agar menyatu dengan background
+            rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("L")
+                .setFontColor("#EF9A9A") // Merah pudar
+                .setRanges([rangeDataDays]).build());
+
+            sheet.setConditionalFormatRules(rules);
+        }
+
+        // Lebar Kolom
+        sheet.setColumnWidth(1, 40); 
+        sheet.setColumnWidth(2, 200); 
+        sheet.setColumnWidth(3, 100); 
+        for(var c=4; c<=3+daysCount; c++){
+            sheet.setColumnWidth(c, 28);
+        }
+        
+        sheet.setFrozenRows(4);
+        sheet.setFrozenColumns(2); 
+    }
+    
+    // --- SKENARIO 2: LOGIKA LAMA (Monitoring Realtime) ---
+    else {
+        if (type === 'laporan_absensi') fileName = "Laporan Absensi - " + timestamp;
+        else fileName = "Monitoring Realtime - " + timestamp;
+        
+        ss = SpreadsheetApp.create(fileName);
+        generateExcelOldLogic(type, filters, ss, fileName);
+    }
+
+    var fileId = ss.getId();
+    var file = DriveApp.getFileById(fileId);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    return { success: true, url: "https://docs.google.com/spreadsheets/d/" + fileId + "/export?format=xlsx" };
+
+  } catch (e) {
+    return { success: false, message: 'Gagal generate Excel: ' + e.toString() };
+  }
+}
+
+// ==========================================
+// HELPER: LOGIKA LAMA (Monitoring & Laporan Harian)
+// ==========================================
+function generateExcelOldLogic(type, filters, ss, fileName) {
+    var exportData = getExportData(type, filters);
+
+    if (exportData.mode === 'multi_sheet') {
+        
+        // --- SHEET 1: DETAIL LOG ---
+        var sheet1 = ss.getSheetByName('Sheet1');
+        sheet1.setName(exportData.sheet1.name);
+        
+        var headers1 = ["No", "Tanggal", "NISN", "Nama Siswa", "Kelas", "Jam Datang", "Jam Pulang", "Keterangan", "Status"];
+        sheet1.getRange(1, 1, 1, headers1.length)
+              .setValues([headers1])
+              .setFontWeight('bold')
+              .setBackground('#4F46E5') // Indigo
+              .setFontColor('#FFFFFF');
+
+        if (exportData.sheet1.data.length > 0) {
+            var dataRows = exportData.sheet1.data;
+            var numRows = dataRows.length;
+            var numCols = headers1.length;
+
+            // 1. Tulis Data
+            sheet1.getRange(2, 1, numRows, numCols).setValues(dataRows);
+            
+            // 2. Border
+            sheet1.getRange(1, 1, numRows + 1, numCols).setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+
+            // 3. WARNA KHUSUS HARI LIBUR
+            for (var i = 0; i < numRows; i++) {
+                // Kolom Status ada di index 8 (Urutan ke-9)
+                var status = dataRows[i][8]; 
+                
+                if (status === 'Libur') {
+                    var rangeRow = sheet1.getRange(i + 2, 1, 1, numCols);
+                    rangeRow.setBackground('#FEE2E2') // Merah Muda
+                            .setFontColor('#991B1B')  // Merah Tua
+                            .setFontWeight('bold');   
+                }
+            }
+        }
+        sheet1.autoResizeColumns(1, headers1.length);
+        sheet1.setFrozenRows(1);
+
+        // --- SHEET 2: REKAP ABSENSI ---
+        var sheet2 = ss.insertSheet(exportData.sheet2.name);
+        var rekapRows = exportData.sheet2.data;
+        var dates = exportData.sheet2.dateHeaders; 
+        
+        var datesLen = (dates && Array.isArray(dates)) ? dates.length : 0;
+        var totalCols = 4 + datesLen + 3; 
+        var safeMergeCols = Math.max(1, Math.min(totalCols, 20)); 
+        
+        // Judul & Periode
+        var titleText = (type === 'laporan_absensi') ? "REKAPITULASI KEHADIRAN SISWA" : "MONITORING KEHADIRAN HARIAN";
+        sheet2.getRange(1, 1, 1, safeMergeCols).merge().setValue(titleText).setFontWeight("bold").setFontSize(16).setHorizontalAlignment("center").setVerticalAlignment("middle").setFontColor("#1e3a8a");
+        sheet2.getRange(2, 1, 1, safeMergeCols).merge().setValue("Periode: " + exportData.periode).setFontWeight("bold").setFontSize(11).setHorizontalAlignment("center");
+
+        // Header Table
+        var startRowHead = 4;
+        sheet2.getRange(startRowHead + 1, 1).setValue("No");
+        sheet2.getRange(startRowHead + 1, 2).setValue("Nama Siswa");
+        sheet2.getRange(startRowHead + 1, 3).setValue("NISN");
+        sheet2.getRange(startRowHead + 1, 4).setValue("Kelas");
+        
+        // Merge Header Vertikal
+        sheet2.getRange(startRowHead, 1, 2, 1).merge().setVerticalAlignment("middle");
+        sheet2.getRange(startRowHead, 2, 2, 1).merge().setVerticalAlignment("middle");
+        sheet2.getRange(startRowHead, 3, 2, 1).merge().setVerticalAlignment("middle");
+        sheet2.getRange(startRowHead, 4, 2, 1).merge().setVerticalAlignment("middle");
+
+        // Header Tanggal
+        if (datesLen > 0) {
+             sheet2.getRange(startRowHead + 1, 5, 1, datesLen).setValues([dates]);
+             sheet2.getRange(startRowHead, 5, 1, datesLen).merge().setValue("TANGGAL").setHorizontalAlignment("center").setVerticalAlignment("middle");
+        } else {
+             sheet2.getRange(startRowHead, 5).setValue("TANGGAL (0 Hari)");
+        }
+
+        // Header Jumlah
+        var startColJumlah = 5 + datesLen;
+        sheet2.getRange(startRowHead + 1, startColJumlah).setValue("S");
+        sheet2.getRange(startRowHead + 1, startColJumlah + 1).setValue("I");
+        sheet2.getRange(startRowHead + 1, startColJumlah + 2).setValue("A");
+        sheet2.getRange(startRowHead, startColJumlah, 1, 3).merge().setValue("JUMLAH").setHorizontalAlignment("center").setVerticalAlignment("middle");
+
+        // Style Header Area
+        sheet2.getRange(startRowHead, 1, 2, totalCols).setBackground('#1e3a8a').setFontColor('#FFFFFF').setFontWeight('bold').setHorizontalAlignment('center').setBorder(true, true, true, true, true, true, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID);
+
+        // Body Table
+        var startRowBody = 6;
+        if (rekapRows.length > 0) {
+            sheet2.getRange(startRowBody, 1, rekapRows.length, rekapRows[0].length).setValues(rekapRows);
+            
+            var bodyRange = sheet2.getRange(startRowBody, 1, rekapRows.length, totalCols);
+            bodyRange.setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+            bodyRange.setHorizontalAlignment('center'); 
+            sheet2.getRange(startRowBody, 2, rekapRows.length, 1).setHorizontalAlignment('left'); 
+
+            // Zebra Striping
+            for (var i = 0; i < rekapRows.length; i++) {
+                if (i % 2 === 1) sheet2.getRange(startRowBody + i, 1, 1, totalCols).setBackground('#F3F4F6');
+            }
+
+            // Conditional Formatting Kode
+            if (datesLen > 0) {
+                var rules = sheet2.getConditionalFormatRules();
+                var rangeKode = sheet2.getRange(startRowBody, 5, rekapRows.length, datesLen);
+
+                rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("A").setBackground("#FEE2E2").setFontColor("#991B1B").setBold(true).setRanges([rangeKode]).build());
+                rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("S").setBackground("#FEF9C3").setFontColor("#854D0E").setBold(true).setRanges([rangeKode]).build());
+                rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("I").setBackground("#DBEAFE").setFontColor("#1E40AF").setBold(true).setRanges([rangeKode]).build());
+                rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("L").setBackground("#4B5563").setFontColor("#FFFFFF").setRanges([rangeKode]).build());
+
+                sheet2.setConditionalFormatRules(rules);
+            }
+        }
+        
+        // Lebar Kolom
+        sheet2.setColumnWidth(1, 35);  
+        sheet2.setColumnWidth(2, 250); 
+        sheet2.setColumnWidth(3, 100); 
+        sheet2.setColumnWidth(4, 60);  
+        for(var c = 0; c < datesLen; c++) {
+            sheet2.setColumnWidth(5 + c, 32);
+        }
+        sheet2.setFrozenRows(5);
+    }
+    // Fallback Mode
+    else {
+        var sheet = ss.getSheetByName('Sheet1');
+        if(exportData && exportData.length > 0) {
+           sheet.getRange(1, 1, exportData.length, exportData[0].length).setValues(exportData);
+        }
+    }
+}
+
+function getAppConfig() {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('konfigurasi');
+    // Default config jika sheet belum ada/kosong
+    const defaultJadwal = {
+      "1": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+      "2": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+      "3": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+      "4": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+      "5": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+      "6": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+      "7": {"libur":true,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"}
+    };
+    let config = {
+      jam_masuk_mulai: '06:00',
+      jam_masuk_akhir: '07:15',
+      jam_pulang_mulai: '15:00',
+      jam_pulang_akhir: '17:00',
+      jadwal_harian: defaultJadwal,
+      mode_absen: 'masuk_pulang'
+    };
+    
+    if (sheet) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        const key = data[i][0];
+        const val = data[i][1];
+        if (key === 'jadwal_harian') {
+          try {
+            config.jadwal_harian = JSON.parse(String(val));
+          } catch(e) {
+            config.jadwal_harian = defaultJadwal;
+          }
+        } else if (config.hasOwnProperty(key)) {
+          // Pastikan format HH:mm (terkadang Google Sheet menyimpan sebagai Date)
+          if (val instanceof Date) {
+            config[key] = formatWaktuSheet(val, 'HH:mm');
+          } else {
+            config[key] = String(val);
+          }
+        }
+      }
+    }
+    return { success: true, data: config };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// 3. Simpan Konfigurasi dari Frontend
+function saveAppConfig(newConfig) {
+  try {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName('konfigurasi');
+    if (!sheet) return { success: false, message: 'Sheet konfigurasi tidak ditemukan' };
+    
+    const data = sheet.getDataRange().getValues();
+    
+    const updateRow = (key, val) => {
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0] === key) {
+          sheet.getRange(i + 1, 2).setValue(val); 
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Simpan jam default (backward-compat)
+    updateRow('jam_masuk_mulai', "'" + (newConfig.jam_masuk_mulai || '06:00'));
+    updateRow('jam_masuk_akhir', "'" + (newConfig.jam_masuk_akhir || '07:15'));
+    updateRow('jam_pulang_mulai', "'" + (newConfig.jam_pulang_mulai || '15:00'));
+    updateRow('jam_pulang_akhir', "'" + (newConfig.jam_pulang_akhir || '17:00'));
+
+    // Simpan mode_absen
+    if (newConfig.mode_absen) {
+      const validModes = ['masuk_saja', 'masuk_pulang', 'masuk_sholat_pulang'];
+      const modeVal = validModes.includes(newConfig.mode_absen) ? newConfig.mode_absen : 'masuk_pulang';
+      if (!updateRow('mode_absen', modeVal)) {
+        sheet.appendRow(['mode_absen', modeVal, 'Mode: masuk_saja | masuk_pulang | masuk_sholat_pulang']);
+      }
+    }
+
+    // Simpan jadwal_harian (JSON)
+    if (newConfig.jadwal_harian) {
+      // Ambil jadwal lama untuk membandingkan perubahan
+      const oldConfigResult = getAppConfig();
+      const oldJadwal = (oldConfigResult.success && oldConfigResult.data.jadwal_harian)
+        ? oldConfigResult.data.jadwal_harian
+        : {};
+
+      const newJadwal = (typeof newConfig.jadwal_harian === 'string')
+        ? JSON.parse(newConfig.jadwal_harian)
+        : newConfig.jadwal_harian;
+
+      const jsonStr = JSON.stringify(newJadwal);
+      if (!updateRow('jadwal_harian', jsonStr)) {
+        sheet.appendRow(['jadwal_harian', jsonStr, 'Jadwal per hari (JSON)']);
+      }
+
+      // ─── SYNC OTOMATIS KE SHEET hari_libur ───────────────────────────────
+      // Ketika suatu hari diubah jadi LIBUR  → catat semua tanggal hari tsb
+      //   yang sudah lewat ke hari_libur (agar laporan lama tetap tercatat Libur)
+      // Ketika suatu hari diubah jadi TIDAK LIBUR → hapus hanya tanggal MENDATANG
+      //   dari hari_libur (tanggal lampau tetap aman → laporan lama tidak berubah)
+      syncJadwalHarianKeHariLibur(ss, oldJadwal, newJadwal);
+      // ─────────────────────────────────────────────────────────────────────
+    }
+
+    return { success: true, message: 'Konfigurasi waktu berhasil disimpan' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * Sinkronisasi perubahan jadwal_harian ke sheet hari_libur.
+ * Dipanggil setiap kali admin menyimpan jadwal harian.
+ *
+ * Aturan:
+ *  - Hari berubah jadi LIBUR  → insert tanggal hari tsb yang SUDAH LEWAT (maks 1 tahun ke belakang)
+ *                                ke hari_libur dengan keterangan "Libur Rutin [Nama Hari]",
+ *                                HANYA jika belum ada di hari_libur.
+ *  - Hari berubah jadi TIDAK LIBUR → hapus tanggal hari tsb yang BELUM TERJADI (masa depan)
+ *                                     dari hari_libur yang berketerangan "Libur Rutin [Nama Hari]".
+ *                                     Tanggal lampau TIDAK disentuh.
+ */
+function syncJadwalHarianKeHariLibur(ss, oldJadwal, newJadwal) {
+  try {
+    const liburSheet = ss.getSheetByName('hari_libur');
+    if (!liburSheet) return;
+
+    // Mapping: dayIndex (1=Sen..7=Min) → nama hari
+    const dayNames = {
+      '1': 'Senin', '2': 'Selasa', '3': 'Rabu', '4': 'Kamis',
+      '5': 'Jumat', '6': 'Sabtu', '7': 'Minggu'
+    };
+    // Mapping: dayIndex → getDay() value (0=Minggu, 1=Sen, ..., 6=Sabtu)
+    // dayIndex '1'=Senin → getDay()=1, dst. dayIndex '7'=Minggu → getDay()=0
+    const dayIndexToGetDay = {
+      '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 0
+    };
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = formatWaktuSheet(today, 'yyyy-MM-dd');
+
+    // Baca hari_libur yang sudah ada → simpan dalam Set untuk cek duplikat
+    const liburData = liburSheet.getDataRange().getValues();
+    // Map: tglStr → { rowIndex (1-based), keterangan }
+    const existingMap = {};
+    for (let i = 1; i < liburData.length; i++) {
+      if (!liburData[i][0]) continue;
+      const tgl = formatWaktuSheet(new Date(liburData[i][0]), 'yyyy-MM-dd');
+      existingMap[tgl] = { rowIndex: i + 1, ket: String(liburData[i][1] || '') };
+    }
+
+    const rowsToAdd = [];        // [tanggal Date, keterangan String]
+    const rowIndicesToDelete = []; // row index (1-based) di sheet
+
+    // Loop setiap hari dalam jadwal
+    for (const dayIdx in newJadwal) {
+      const namaHari = dayNames[dayIdx] || ('Hari ' + dayIdx);
+      // Keterangan dari input admin; fallback ke nama hari jika kosong
+      const ketLibur = (newJadwal[dayIdx] && newJadwal[dayIdx].ket_libur && newJadwal[dayIdx].ket_libur.trim())
+        ? newJadwal[dayIdx].ket_libur.trim()
+        : ('Libur ' + namaHari);
+      const getDay = dayIndexToGetDay[dayIdx];
+      if (getDay === undefined) continue;
+
+      const wasLibur = oldJadwal[dayIdx] ? oldJadwal[dayIdx].libur : false;
+      const isLibur  = newJadwal[dayIdx] ? newJadwal[dayIdx].libur : false;
+
+      // ── KASUS 1: Hari ini LIBUR KHUSUS (bukan rutinan) ──
+      // Libur rutinan (misal Minggu) tidak disimpan ke hari_libur.
+      // Hanya libur khusus yang perlu tercatat agar muncul di laporan.
+      const isRutinan = newJadwal[dayIdx].libur_rutinan !== false; // default true jika tidak ada
+      if (isLibur && !isRutinan) {
+        // Cari tanggal terdekat ke belakang yang sesuai hari (maks 7 hari)
+        const d = new Date(today);
+        let tries = 0;
+        while (d.getDay() !== getDay && tries < 7) {
+          d.setDate(d.getDate() - 1);
+          tries++;
+        }
+        if (d.getDay() === getDay) {
+          const dStr = formatWaktuSheet(d, 'yyyy-MM-dd');
+          if (!existingMap[dStr]) {
+            // Belum ada → tambahkan
+            rowsToAdd.push([new Date(d), ketLibur]);
+            existingMap[dStr] = { rowIndex: -1, ket: ketLibur };
+          }
+          // Sudah ada → tidak ditimpa (agar data yang sudah dicatat manual tidak hilang)
+        }
+      }
+
+      // ── KASUS 2: Berubah dari LIBUR → TIDAK LIBUR ──────────────────────
+      if (wasLibur && !isLibur) {
+        // Hapus hanya tanggal MENDATANG (setelah hari ini) yang sesuai hari tsb
+        // Tanggal lampau tidak disentuh agar laporan lama tetap menampilkan Libur
+        for (const tglStr in existingMap) {
+          if (tglStr > todayStr) {
+            const entry = existingMap[tglStr];
+            const entryDate = new Date(tglStr + 'T00:00:00');
+            if (entryDate.getDay() === getDay) {
+              if (entry.rowIndex > 0) {
+                rowIndicesToDelete.push(entry.rowIndex);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // ── Hapus baris (dari bawah ke atas agar index tidak geser) ──────────
+    if (rowIndicesToDelete.length > 0) {
+      rowIndicesToDelete.sort((a, b) => b - a); // urut descending
+      for (const ri of rowIndicesToDelete) {
+        liburSheet.deleteRow(ri);
+      }
+    }
+
+    // ── Tambah baris baru ─────────────────────────────────────────────────
+    if (rowsToAdd.length > 0) {
+      // Urutkan tanggal ascending agar rapi
+      rowsToAdd.sort((a, b) => a[0] - b[0]);
+      for (const row of rowsToAdd) {
+        liburSheet.appendRow(row);
+      }
+    }
+
+  } catch (e) {
+    // Gagal sync tidak boleh menghentikan penyimpanan config utama
+    Logger.log('syncJadwalHarianKeHariLibur error: ' + e.toString());
+  }
+}
+
+// Helper: Menghitung selisih menit antara dua waktu (HH:mm)
+function calculateTimeDiff(startTime, endTime) {
+  const [h1, m1] = startTime.split(':').map(Number);
+  const [h2, m2] = endTime.split(':').map(Number);
+  
+  const totalMinutes1 = h1 * 60 + m1;
+  const totalMinutes2 = h2 * 60 + m2;
+  
+  return totalMinutes2 - totalMinutes1;
+}
+
+// ====================================
+// MODE ABSENSI — Getter & Setter
+// ====================================
+
+/**
+ * Ambil mode absensi aktif.
+ * Return: { success, mode, label }
+ * mode: 'masuk_saja' | 'masuk_pulang' | 'masuk_sholat_pulang'
+ */
+function getModeAbsen() {
+  try {
+    const configResult = getAppConfig();
+    const mode = configResult.success ? (configResult.data.mode_absen || 'masuk_pulang') : 'masuk_pulang';
+    const labels = {
+      masuk_saja:           '1x Absen (Masuk Saja)',
+      masuk_pulang:         'Absen Masuk & Pulang',
+      masuk_sholat_pulang:  'Absen Masuk, Sholat & Pulang'
+    };
+    return { success: true, mode, label: labels[mode] || mode };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * Simpan mode absensi baru.
+ * @param {string} mode - 'masuk_saja' | 'masuk_pulang' | 'masuk_sholat_pulang'
+ */
+function setModeAbsen(mode) {
+  try {
+    const validModes = ['masuk_saja', 'masuk_pulang', 'masuk_sholat_pulang'];
+    if (!validModes.includes(mode)) {
+      return { success: false, message: `Mode tidak valid. Pilih: ${validModes.join(', ')}` };
+    }
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('konfigurasi');
+    if (!sheet) return { success: false, message: 'Sheet konfigurasi tidak ditemukan.' };
+
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === 'mode_absen') {
+        sheet.getRange(i + 1, 2).setValue(mode);
+        const labels = {
+          masuk_saja:          '1x Absen (Masuk Saja)',
+          masuk_pulang:        'Absen Masuk & Pulang',
+          masuk_sholat_pulang: 'Absen Masuk, Sholat & Pulang'
+        };
+        return { success: true, message: `Mode absensi diubah ke: ${labels[mode]}` };
+      }
+    }
+    // Belum ada baris → buat baru
+    sheet.appendRow(['mode_absen', mode, 'Mode: masuk_saja | masuk_pulang | masuk_sholat_pulang']);
+    return { success: true, message: 'Mode absensi berhasil disimpan.' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// ====================================
+// IMPORT SISWA DARI EXCEL (BULK)
+// ====================================
+function importSiswaBulk(dataArray) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('siswa');
+    const existingData = sheet.getDataRange().getValues();
+    
+    // 1. Ambil daftar NISN yang sudah ada untuk cek duplikasi
+    const existingNISN = new Set();
+    for (let i = 1; i < existingData.length; i++) {
+      existingNISN.add(String(existingData[i][1]).trim());
+    }
+
+    const rowsToAdd = [];
+    let addedCount = 0;
+    let skippedCount = 0;
+
+    // 2. Loop data import
+    for (let i = 0; i < dataArray.length; i++) {
+      const item = dataArray[i];
+      const nisn = String(item.nisn).trim();
+
+      // Validasi dasar
+      if (!item.nama || !nisn) {
+        skippedCount++;
+        continue;
+      }
+
+      // Cek Duplikasi NISN
+      if (existingNISN.has(nisn)) {
+        skippedCount++;
+        continue;
+      }
+
+      // Format Tanggal Lahir (Jika Excel mengirim format angka tanggal)
+      // SheetJS kadang mengirim string, kadang angka. Kita simpan string aman.
+      let tglLahir = item.tanggalLahir;
+      
+      // Siapkan baris
+      rowsToAdd.push([
+        item.nama,
+        "'" + nisn, // Pakai kutip satu agar format text terjaga
+        item.jenisKelamin,
+        tglLahir,
+        item.agama,
+        item.namaAyah,
+        item.namaIbu,
+        "'" + item.noHp,
+        item.kelas,
+        item.alamat
+      ]);
+      
+      // Tambahkan ke Set agar tidak duplikat di dalam file import itu sendiri
+      existingNISN.add(nisn);
+      addedCount++;
+    }
+
+    // 3. Tulis ke Sheet sekaligus (Batch Operation) agar cepat
+    if (rowsToAdd.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+    }
+
+    return { 
+      success: true, 
+      added: addedCount, 
+      skipped: skippedCount, 
+      message: `Import selesai. Berhasil: ${addedCount}, Duplikat/Gagal: ${skippedCount}` 
+    };
+
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+// ====================================
+// IMPORT GURU DARI EXCEL (BULK)
+// ====================================
+function importGuruBulk(dataArray) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('users');
+    const existingData = sheet.getDataRange().getValues();
+    
+    // 1. Ambil daftar Username yang sudah ada untuk cek duplikasi
+    const existingUsernames = new Set();
+    for (let i = 1; i < existingData.length; i++) {
+      existingUsernames.add(String(existingData[i][0]).trim());
+    }
+
+    const rowsToAdd = [];
+    let addedCount = 0;
+    let skippedCount = 0;
+
+    // 2. Loop data import
+    for (let i = 0; i < dataArray.length; i++) {
+      const item = dataArray[i];
+      const username = String(item.username).trim();
+
+      // Validasi dasar
+      if (!username || !item.password) {
+        skippedCount++;
+        continue;
+      }
+
+      // Cek Duplikasi Username
+      if (existingUsernames.has(username)) {
+        skippedCount++;
+        continue;
+      }
+
+      // Siapkan baris: [Username, Password, Role, Kelas]
+      rowsToAdd.push([
+        "'" + username, // Pakai kutip satu agar format text terjaga
+        "'" + item.password,
+        'guru',         // Role otomatis di-set 'guru'
+        item.kelas || '' // Kelas opsional
+      ]);
+
+      // Tambahkan ke Set agar tidak duplikat di dalam file import itu sendiri
+      existingUsernames.add(username);
+      addedCount++;
+    }
+
+    // 3. Tulis ke Sheet sekaligus (Batch Operation)
+    if (rowsToAdd.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+    }
+
+    return { 
+      success: true, 
+      added: addedCount, 
+      skipped: skippedCount, 
+      message: `Import selesai. Berhasil: ${addedCount}, Duplikat/Gagal: ${skippedCount}` 
+    };
+
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+// ====================================
+// IMPORT HARI LIBUR DARI EXCEL (BULK)
+// ====================================
+function importHariLiburBulk(dataArray) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('hari_libur');
+    const existingData = sheet.getDataRange().getValues();
+    
+    // 1. Ambil daftar Tanggal yang sudah ada
+    const existingDates = new Set();
+    for (let i = 1; i < existingData.length; i++) {
+      if (existingData[i][0]) {
+        // Format tanggal existing menjadi string untuk perbandingan
+        let tglStr = formatWaktuSheet(new Date(existingData[i][0]), 'yyyy-MM-dd');
+        existingDates.add(tglStr);
+      }
+    }
+
+    const rowsToAdd = [];
+    let addedCount = 0;
+    let skippedCount = 0;
+
+    // 2. Loop data import
+    for (let i = 0; i < dataArray.length; i++) {
+      const item = dataArray[i];
+      if (!item.tanggal || !item.keterangan) {
+        skippedCount++;
+        continue;
+      }
+
+      // Pastikan format input bersih
+      const dateStr = String(item.tanggal).trim(); // Harusnya sudah yyyy-mm-dd dari frontend
+      
+      // Cek Duplikasi
+      if (existingDates.has(dateStr)) {
+        skippedCount++;
+        continue;
+      }
+
+      // --- PERUBAHAN UTAMA: KIRIM SEBAGAI STRING, BUKAN OBJECT DATE ---
+      // Dengan mengirim string "2026-01-17", Google Sheet akan menerimanya 
+      // sebagai tanggal lokal murni (tanpa pergeseran jam 7:00)
+      rowsToAdd.push([
+        dateStr, 
+        item.keterangan
+      ]);
+      // ---------------------------------------------------------------
+
+      existingDates.add(dateStr);
+      addedCount++;
+    }
+
+    // 3. Tulis ke Sheet
+    if (rowsToAdd.length > 0) {
+      const startRow = sheet.getLastRow() + 1;
+      
+      // Tulis data
+      sheet.getRange(startRow, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+      
+      // Paksa Format Tampilan menjadi "17-01-2026" (dd-MM-yyyy)
+      sheet.getRange(startRow, 1, rowsToAdd.length, 1).setNumberFormat("dd-MM-yyyy");
+    }
+
+    return { 
+      success: true, 
+      added: addedCount, 
+      skipped: skippedCount, 
+      message: `Import selesai. Berhasil: ${addedCount}, Gagal: ${skippedCount}` 
+    };
+
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}
+
+// ==========================================
+// DATA REKAP BULANAN
+// ==========================================
+// --- Copy Fungsi Ini ke code.gs jika belum ada ---
+function getMonthlyReportData(bulan, tahun, kelasFilter) {
+  try {
+    const ss = getSpreadsheet();
+    const siswaSheet = ss.getSheetByName('siswa');
+    const absensiSheet = ss.getSheetByName('absensi');
+    const liburSheet = ss.getSheetByName('hari_libur');
+    
+    // 1. Setup Tanggal
+    const year = parseInt(tahun);
+    const month = parseInt(bulan); // 0 = Jan, 11 = Dec
+    const startDate = new Date(year, month, 1);
+    const endDate = new Date(year, month + 1, 0); 
+    const daysInMonth = endDate.getDate();
+
+    // 2. Mapping Hari Libur
+    const holidayMap = {};
+    if (liburSheet) {
+      const liburData = liburSheet.getDataRange().getValues();
+      for(let i=1; i<liburData.length; i++){
+        if(liburData[i][0]){
+          let tglStr = formatWaktuSheet(new Date(liburData[i][0]), 'yyyy-MM-dd');
+          holidayMap[tglStr] = liburData[i][1];
+        }
+      }
+    }
+
+    // 2b. Load jadwal_harian dari config (untuk libur rutin Sabtu/hari lain)
+    const configResult = getAppConfig();
+    const jadwalHarian = (configResult.success && configResult.data.jadwal_harian)
+      ? configResult.data.jadwal_harian : null;
+    // Helper: JS getDay() (0=Minggu,1=Sen,...,6=Sab) → key jadwal_harian (1=Sen,...,6=Sab,7=Min)
+    function isJadwalLibur(jsDay) {
+      if (!jadwalHarian) return jsDay === 0; // fallback: hanya Minggu
+      const key = jsDay === 0 ? '7' : String(jsDay);
+      const sc = jadwalHarian[key];
+      return !sc || sc.libur === true;
+    }
+
+    // 3. Ambil & Filter Siswa (support multi-kelas)
+    const rawSiswa = siswaSheet.getDataRange().getValues();
+    const siswaList = [];
+    const fKelasList = kelasFilter
+      ? String(kelasFilter).split(',').map(k => k.trim()).filter(Boolean)
+      : [];
+    for (let i = 1; i < rawSiswa.length; i++) {
+        if (!rawSiswa[i][0]) continue;
+        const sKelas = String(rawSiswa[i][8]).trim();
+        
+        if (fKelasList.length > 0 && !fKelasList.includes(sKelas)) continue;
+        
+        siswaList.push({
+            nama: rawSiswa[i][0],
+            nisn: String(rawSiswa[i][1]).trim(),
+            kelas: sKelas
+        });
+    }
+    siswaList.sort((a, b) => a.nama.localeCompare(b.nama));
+
+    // 4. Ambil & Map Absensi
+    const rawAbsen = absensiSheet.getDataRange().getValues();
+    const absenMap = {};
+    const startStr = formatWaktuSheet(startDate, 'yyyy-MM-dd');
+    const endStr = formatWaktuSheet(endDate, 'yyyy-MM-dd');
+
+    for (let i = 1; i < rawAbsen.length; i++) {
+        if (!rawAbsen[i][0]) continue;
+        const tglAbsen = formatWaktuSheet(new Date(rawAbsen[i][0]), 'yyyy-MM-dd');
+        if (tglAbsen < startStr || tglAbsen > endStr) continue;
+
+        const nisn = String(rawAbsen[i][1]).trim();
+        const key = tglAbsen + '_' + nisn;
+        absenMap[key] = rawAbsen[i][7]; 
+    }
+
+    // 5. Build Final Structure
+    const reportData = siswaList.map(siswa => {
+        let stats = { h: 0, s: 0, i: 0, a: 0, effectiveDays: 0 };
+        let dailyCodes = [];
+
+        for (let d = 1; d <= daysInMonth; d++) {
+            const currentDate = new Date(year, month, d);
+            const dateStr = formatWaktuSheet(currentDate, 'yyyy-MM-dd');
+            const isHoliday = holidayMap[dateStr] ? true : false;
+            // Cek libur rutin dari jadwal_harian (termasuk Sabtu jika diset libur)
+            const isRoutineOff = isJadwalLibur(currentDate.getDay());
+            let code = '-';
+            let isDayOff = isRoutineOff || isHoliday;
+
+            if (isDayOff) {
+                code = 'L'; 
+            } else {
+                const key = dateStr + '_' + siswa.nisn;
+                const status = absenMap[key];
+                const todayStr = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+                
+                if (dateStr > todayStr) {
+                    code = ''; 
+                } else {
+                    stats.effectiveDays++; 
+                    if (status === 'Hadir') { code = 'H'; stats.h++; }
+                    else if (status === 'Sakit') { code = 'S'; stats.s++; }
+                    else if (status === 'Izin') { code = 'I'; stats.i++; }
+                    else if (status === 'Alpa' || status === 'Alpha' || status === 'Belum Absen') { code = 'A'; stats.a++; }
+                    else { code = 'A'; stats.a++; } 
+                }
+            }
+            dailyCodes.push({ date: d, code: code, isHoliday: isDayOff });
+        }
+
+        let percent = 0;
+        if (stats.effectiveDays > 0) percent = Math.round((stats.h / stats.effectiveDays) * 100);
+
+        return {
+            nama: siswa.nama,
+            nisn: siswa.nisn,
+            kelas: siswa.kelas,
+            dailyCodes: dailyCodes,
+            stats: { ...stats, percent: percent }
+        };
+    });
+
+    return { success: true, data: { daysInMonth, students: reportData } };
+
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// ==========================================
+// FITUR KENAIKAN KELAS & ARSIP TAHUN AJARAN
+// ==========================================
+
+/**
+ * Memproses kenaikan kelas massal
+ * @param {Array} mapping - Array of {asal: '1A', tujuan: '2A'}
+ */
+function processGradePromotion(mapping) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000); // Kunci script agar tidak crash jika multiple klik
+    const ss = getSpreadsheet();
+    const siswaSheet = ss.getSheetByName('siswa');
+    
+    // 1. Siapkan Sheet Alumni (Jika ada yang lulus)
+    let alumniSheet = ss.getSheetByName('alumni');
+    if (!alumniSheet) {
+      alumniSheet = ss.insertSheet('alumni');
+      alumniSheet.appendRow(["Nama", "NISN", "Jenis Kelamin", "Kelas Terakhir", "Tahun Lulus", "Kontak"]);
+      alumniSheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#E5E7EB");
+    }
+
+    // 2. Ambil Data Siswa
+    const dataRange = siswaSheet.getDataRange();
+    const values = dataRange.getValues();
+    // Asumsi Kolom: 0=Nama, 1=NISN, 2=JK, ... 8=Kelas (Index 8)
+    // Sesuaikan index kolom kelas jika berbeda! (Berdasarkan kode sebelumnya, index 8 adalah Kelas)
+    const COL_KELAS = 8; 
+    
+    let movedCount = 0;
+    const rowsToDelete = []; // Simpan index baris yang jadi alumni untuk dihapus nanti
+    const rowsToUpdate = []; // Simpan update [row, col, value]
+
+    // Buat Map Mapping biar cepat aksesnya
+    // mapObj = { '1A': '2A', '6A': 'LULUS' }
+    const mapObj = {};
+    mapping.forEach(m => mapObj[m.asal] = m.tujuan);
+
+    // 3. Loop Data Siswa (Mulai baris 1 / Row 2)
+    for (let i = 1; i < values.length; i++) {
+      if (!values[i][0]) continue; // Skip baris kosong
+      
+      const currentKelas = values[i][COL_KELAS];
+      const targetKelas = mapObj[currentKelas];
+
+      if (targetKelas) {
+        if (targetKelas === 'LULUS') {
+          // Pindahkan ke Alumni
+          const tahunLulus = new Date().getFullYear();
+          alumniSheet.appendRow([
+            values[i][0], // Nama
+            values[i][1], // NISN
+            values[i][2], // JK
+            currentKelas, // Kelas Terakhir
+            tahunLulus,
+            values[i][4]  // Kontak (Opsional, sesuaikan kolom)
+          ]);
+          rowsToDelete.push(i + 1); // Row index (1-based)
+        } else {
+          // Update Kelas di Memory
+          // values[i][COL_KELAS] = targetKelas; -> Tidak perlu update array memory, kita catat posisinya
+          // Push ke batch update
+          rowsToUpdate.push({ row: i + 1, col: COL_KELAS + 1, val: targetKelas });
+        }
+        movedCount++;
+      }
+    }
+
+    // 4. Eksekusi Update Kelas (Batch)
+    if (rowsToUpdate.length > 0) {
+
+        const kelasRange = siswaSheet.getRange(2, COL_KELAS + 1, values.length - 1, 1);
+        const kelasValues = kelasRange.getValues();
+        
+        rowsToUpdate.forEach(item => {
+            // item.row is 1-based index from sheet.
+            // array index is row - 2
+            const arrIdx = item.row - 2;
+            if (arrIdx >= 0 && arrIdx < kelasValues.length) {
+                kelasValues[arrIdx][0] = item.val;
+            }
+        });
+        
+        kelasRange.setValues(kelasValues);
+    }
+
+    // 5. Eksekusi Hapus Alumni (Dari bawah ke atas agar index tidak geser)
+    // Sort descending
+    rowsToDelete.sort((a, b) => b - a);
+    rowsToDelete.forEach(rowIdx => {
+      siswaSheet.deleteRow(rowIdx);
+    });
+
+    return { success: true, movedCount: movedCount };
+
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+// ==========================================
+// FUNGSI ARSIP & RESET TAHUN AJARAN (FINAL)
+// ==========================================
+function archiveAndResetYear(archiveName) {
+  const lock = LockService.getScriptLock();
+  try {
+    // 1. Kunci Script (Mencegah double klik)
+    lock.waitLock(30000);
+    
+    const ss = getSpreadsheet();
+    const absensiSheet = ss.getSheetByName('absensi');
+    
+    // Pastikan nama tidak kosong
+    if (!archiveName || archiveName.trim() === "") {
+       archiveName = "Arsip " + formatWaktuSheet(new Date(), 'yyyy-MM-dd_HH-mm');
+    }
+
+    // ======================================================
+    // 2. BUAT STRUKTUR FOLDER & FILE
+    // ======================================================
+    
+    // A. Ambil Folder Induk (Wajib ID Folder yang benar di baris 2 script)
+    const parentFolder = DriveApp.getFolderById(PARENT_FOLDER_ID);
+    
+    // B. Buat FOLDER BARU di dalam Folder Induk (Sesuai nama arsip)
+    const subFolder = parentFolder.createFolder(archiveName);
+    
+    // C. Buat File Spreadsheet Baru
+    const archiveSS = SpreadsheetApp.create(archiveName);
+    const archiveUrl = archiveSS.getUrl();
+    const archiveId = archiveSS.getId();
+    
+    // D. PINDAHKAN File Spreadsheet Baru ke dalam FOLDER BARU
+    const file = DriveApp.getFileById(archiveId);
+    file.moveTo(subFolder);
+    
+    // ======================================================
+    // 3. COPY DATA KE ARSIP
+    // ======================================================
+    
+    // Copy Sheet Absensi
+    absensiSheet.copyTo(archiveSS).setName('Data Absensi');
+    
+    // Copy Sheet Siswa (Penting untuk sejarah data siswa tahun itu)
+    const siswaSheet = ss.getSheetByName('siswa');
+    if (siswaSheet) siswaSheet.copyTo(archiveSS).setName('Data Siswa Saat Itu');
+
+    // Hapus Sheet1 kosong bawaan file baru
+    const defaultSheet = archiveSS.getSheetByName('Sheet1');
+    if (defaultSheet) archiveSS.deleteSheet(defaultSheet);
+
+    // ======================================================
+    // 4. BERSIHKAN DATA UTAMA (RESET)
+    // ======================================================
+    
+    // Hapus isi data absensi di file UTAMA (Sisakan Header)
+    const lastRow = absensiSheet.getLastRow();
+    if (lastRow > 1) {
+      // Hapus konten mulai baris 2 sampai akhir
+      absensiSheet.getRange(2, 1, lastRow - 1, absensiSheet.getLastColumn()).clearContent();
+    }
+
+    return { success: true, url: archiveUrl, message: "Berhasil! Data tersimpan di folder: " + archiveName };
+    
+  } catch (e) {
+    return { success: false, message: "Gagal: " + e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ==========================================
+// BACKEND: KENAIKAN KELAS INDIVIDUAL
+// ==========================================
+
+// 1. Ambil Siswa per Kelas untuk List View
+function getSiswaByKelas(kelasTarget) {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName('siswa');
+  const data = sheet.getDataRange().getValues();
+  
+  const output = [];
+  
+  for (let i = 1; i < data.length; i++) {
+    if (!data[i][0]) continue; // skip baris kosong
+
+    // ✅ Jika "SEMUA", ambil semua siswa tanpa filter kelas
+    if (String(kelasTarget).toUpperCase() === 'SEMUA') {
+      output.push({
+        nama: data[i][0],
+        nisn: String(data[i][1]),
+        kelas: data[i][8]
+      });
+    } else if (String(data[i][8]) === String(kelasTarget)) {
+      output.push({
+        nama: data[i][0],
+        nisn: String(data[i][1]),
+        kelas: data[i][8]
+      });
+    }
+  }
+  
+  return output.sort((a, b) => a.nama.localeCompare(b.nama));
+}
+
+// 2. Proses Eksekusi Kenaikan Kelas (Batch Update)
+function processIndividualPromotion(kelasAsal, kelasTujuan, promoData) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    
+    const ss = getSpreadsheet();
+    const siswaSheet = ss.getSheetByName('siswa');
+    
+    // Siapkan Sheet Alumni jika ada yg LULUS
+    let alumniSheet = ss.getSheetByName('alumni');
+    if (!alumniSheet && kelasTujuan === 'LULUS') {
+      alumniSheet = ss.insertSheet('alumni');
+      alumniSheet.appendRow(["Nama", "NISN", "Jenis Kelamin", "Kelas Terakhir", "Tahun Lulus", "Kontak"]);
+      alumniSheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#E5E7EB");
+    }
+
+    const dataRange = siswaSheet.getDataRange();
+    const values = dataRange.getValues();
+    const rowsToDelete = [];
+    
+    // Buat Map NISN -> Row Index untuk pencarian cepat
+    // key: NISN, value: Row Index (0-based array index)
+    const nisnMap = {};
+    for (let i = 1; i < values.length; i++) {
+      const nisn = String(values[i][1]).trim();
+      if (nisn) nisnMap[nisn] = i;
+    }
+
+    // Loop data promosi dari Frontend
+    // promoData = [{nisn: '123', status: 'NAIK'}, {nisn: '456', status: 'TINGGAL'}]
+    promoData.forEach(p => {
+      const rowIndex = nisnMap[String(p.nisn).trim()];
+      
+      if (rowIndex !== undefined) {
+        // Cek Status
+        if (p.status === 'NAIK') {
+          if (kelasTujuan === 'LULUS') {
+            // PINDAH KE ALUMNI
+            const rowData = values[rowIndex];
+            alumniSheet.appendRow([
+              rowData[0], // Nama
+              rowData[1], // NISN
+              rowData[2], // JK
+              kelasAsal,  // Kelas Terakhir (Kelas Asal dia)
+              new Date().getFullYear(), // Tahun Lulus
+              rowData[4]  // Kontak
+            ]);
+            rowsToDelete.push(rowIndex + 1); // Simpan index sheet (1-based) untuk dihapus
+          } else {
+            // UPDATE KE KELAS BARU
+            // Kolom Kelas ada di index 8 (Column I) -> Ubah jadi kelasTujuan
+            siswaSheet.getRange(rowIndex + 1, 9).setValue(kelasTujuan);
+          }
+        } 
+        else if (p.status === 'TINGGAL') {
+          // TIDAK MELAKUKAN APA-APA (Tetap di kelas asal)
+          // Opsional: Bisa memastikan ulang datanya benar
+          // siswaSheet.getRange(rowIndex + 1, 9).setValue(kelasAsal);
+        }
+      }
+    });
+
+    // Hapus data siswa yang jadi Alumni (Hapus dari bawah ke atas)
+    if (rowsToDelete.length > 0) {
+      rowsToDelete.sort((a, b) => b - a); // Sort Descending
+      rowsToDelete.forEach(r => siswaSheet.deleteRow(r));
+    }
+
+    return { success: true };
+
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+
+// ============================================================
+// MANAJEMEN KELAS — CRUD
+// ============================================================
+
+function getKelasMaster() {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('konfigurasi');
+    if (!sheet) return { success: false, message: 'Sheet konfigurasi tidak ditemukan.' };
+
+    const lastRow = sheet.getLastRow();
+    const result = [];
+    if (lastRow >= 2) {
+      const data = sheet.getRange(2, 5, lastRow - 1, 1).getValues();
+      data.forEach((row, idx) => {
+        const nama = String(row[0]).trim();
+        if (nama) result.push({ rowIndex: idx + 2, nama });
+      });
+    }
+    return { success: true, data: result };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function addKelas(namaKelas) {
+  try {
+    namaKelas = String(namaKelas).trim();
+    if (!namaKelas) return { success: false, message: 'Nama kelas tidak boleh kosong.' };
+
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('konfigurasi');
+    if (!sheet) return { success: false, message: 'Sheet konfigurasi tidak ditemukan.' };
+
+    // Cek duplikat
+    const existing = getKelasMaster();
+    if (existing.success && existing.data.some(k => k.nama.toLowerCase() === namaKelas.toLowerCase())) {
+      return { success: false, message: `Kelas "${namaKelas}" sudah ada.` };
+    }
+
+    const lastRow = sheet.getLastRow();
+    // Cari baris kosong di kolom E atau append
+    let targetRow = -1;
+    if (lastRow >= 2) {
+      const col = sheet.getRange(2, 5, lastRow - 1, 1).getValues();
+      for (let i = 0; i < col.length; i++) {
+        if (!String(col[i][0]).trim()) { targetRow = i + 2; break; }
+      }
+    }
+    if (targetRow === -1) targetRow = lastRow + 1;
+    sheet.getRange(targetRow, 5).setValue(namaKelas);
+    return { success: true, message: `Kelas "${namaKelas}" berhasil ditambahkan.` };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function updateKelas(rowIndex, namaBaru) {
+  try {
+    namaBaru = String(namaBaru).trim();
+    if (!namaBaru) return { success: false, message: 'Nama kelas tidak boleh kosong.' };
+
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('konfigurasi');
+    if (!sheet) return { success: false, message: 'Sheet konfigurasi tidak ditemukan.' };
+
+    const namaLama = String(sheet.getRange(rowIndex, 5).getValue()).trim();
+
+    // Cek duplikat (kecuali diri sendiri)
+    const existing = getKelasMaster();
+    if (existing.success && existing.data.some(k => k.nama.toLowerCase() === namaBaru.toLowerCase() && k.rowIndex !== rowIndex)) {
+      return { success: false, message: `Kelas "${namaBaru}" sudah ada.` };
+    }
+
+    sheet.getRange(rowIndex, 5).setValue(namaBaru);
+
+    // Update di sheet siswa juga
+    const siswaSheet = ss.getSheetByName('siswa');
+    if (siswaSheet && namaLama) {
+      const siswaData = siswaSheet.getDataRange().getValues();
+      for (let i = 1; i < siswaData.length; i++) {
+        if (String(siswaData[i][8]).trim() === namaLama) {
+          siswaSheet.getRange(i + 1, 9).setValue(namaBaru);
+        }
+      }
+    }
+
+    return { success: true, message: `Kelas berhasil diubah dari "${namaLama}" ke "${namaBaru}".` };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function deleteKelas(rowIndex, namaKelas) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('konfigurasi');
+    if (!sheet) return { success: false, message: 'Sheet konfigurasi tidak ditemukan.' };
+
+    // Cek apakah kelas masih dipakai siswa
+    const siswaSheet = ss.getSheetByName('siswa');
+    if (siswaSheet) {
+      const siswaData = siswaSheet.getDataRange().getValues();
+      const count = siswaData.slice(1).filter(r => String(r[8]).trim() === namaKelas).length;
+      if (count > 0) {
+        return { success: false, message: `Kelas "${namaKelas}" masih digunakan oleh ${count} siswa. Pindahkan atau hapus siswa terlebih dahulu.` };
+      }
+    }
+
+    sheet.getRange(rowIndex, 5).clearContent();
+    return { success: true, message: `Kelas "${namaKelas}" berhasil dihapus.` };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function getDaftarKelas() {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName('konfigurasi');
+  
+  if (!sheet) return []; // Return kosong jika sheet belum dibuat
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  // Ambil Data dari Kolom E (Baris 2 s/d Akhir)
+  // getRange(row, column, numRows, numColumns)
+  // Kolom E adalah kolom ke-5
+  const data = sheet.getRange(2, 5, lastRow - 1, 1).getValues();
+  
+  // Bersihkan data (hapus yang kosong) & Sortir
+  const kelasList = data
+    .map(row => String(row[0]).trim())
+    .filter(k => k !== "");
+  
+  // Hapus duplikat & Sortir
+  const uniqueKelas = [...new Set(kelasList)].sort();
+
+  return uniqueKelas;
+}
+
+
+
+function getTemplateExcel(type) {
+  try {
+    const ss = getSpreadsheet(); // Ambil spreadsheet utama
+    var timestamp = formatWaktuSheet(new Date(), 'ddMMyyyy_HHmm');
+    var fileName = "Template_" + type.toUpperCase() + "_" + timestamp;
+    
+    // Buat Spreadsheet baru untuk template
+    var newSS = SpreadsheetApp.create(fileName);
+    var newSheet = newSS.getSheets()[0];
+    var headers = [];
+    var exampleRow = [];
+    
+    // LOGIKA DINAMIS: Ambil Header Langsung dari Database
+    if (type === 'siswa') {
+      var sourceSheet = ss.getSheetByName('siswa');
+      
+      // Ambil Header asli dari baris 1
+      // getRange(row, col, numRows, numCols)
+      headers = sourceSheet.getRange(1, 1, 1, sourceSheet.getLastColumn()).getValues()[0];
+      
+      // Buat Contoh Data Dummy yang Sesuai dengan Header
+      exampleRow = headers.map(function(header) {
+        var h = String(header).toLowerCase();
+        if (h.includes('nama') && (h.includes('ayah') || h.includes('ibu'))) return 'Nama Orang Tua';
+        if (h.includes('nama')) return 'Siswa Contoh';
+        if (h.includes('nisn')) return "'1234567890"; // Kutip satu agar jadi teks
+        if (h.includes('kelamin') || h.includes('jk')) return 'Laki-laki';
+        if (h.includes('tgl') || h.includes('lahir')) return '2010-01-01'; // Format YYYY-MM-DD
+        if (h.includes('agama')) return 'Islam';
+        if (h.includes('hp') || h.includes('handphone')) return "'08123456789";
+        if (h.includes('kelas')) return 'X IPA 1';
+        if (h.includes('alamat')) return 'Jl. Contoh No. 1';
+        return 'Contoh Data'; // Default jika kolom tidak dikenali
+      });
+
+    } else if (type === 'guru') {
+      // Untuk Guru, kita tetap manual agar aman (tidak mengekspos kolom Role yang sensitif)
+      headers = ['Username', 'Password', 'Kelas'];
+      exampleRow = ['guru_baru', 'pass123', 'X IPA 1'];
+    }
+
+    // 1. Tulis Header ke File Baru (Baris 1)
+    var headerRange = newSheet.getRange(1, 1, 1, headers.length);
+    headerRange.setValues([headers]);
+    
+    // Styling Header (Biar mirip Data Sheet asli)
+    headerRange.setFontWeight("bold")
+               .setBackground("#4F46E5") // Warna Indigo
+               .setFontColor("#FFFFFF")
+               .setHorizontalAlignment("center");
+
+    // 2. Tulis Data Contoh (Baris 2)
+    newSheet.getRange(2, 1, 1, exampleRow.length).setValues([exampleRow]);
+
+    // 3. Format Kolom Teks (Penting untuk NISN/HP agar angka 0 di depan tidak hilang)
+    // Kita set seluruh kolom menjadi Plain Text secara default untuk aman
+    newSheet.getRange(2, 1, 100, headers.length).setNumberFormat("@");
+
+    // 4. Auto Resize Kolom agar rapi
+    newSheet.autoResizeColumns(1, headers.length);
+
+    // 5. Permission & Return URL
+    var fileId = newSS.getId();
+    var file = DriveApp.getFileById(fileId);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    return {
+      success: true,
+      url: "https://docs.google.com/spreadsheets/d/" + fileId + "/export?format=xlsx",
+      filename: fileName
+    };
+
+  } catch (e) {
+    return { success: false, message: "Gagal membuat template: " + e.toString() };
+  }
+}
+
+// ======================================================
+// FUNGSI PANCINGAN IZIN DRIVE (Jalankan Sekali Saja)
+// ======================================================
+// ======================================================
+// INISIALISASI JADWAL HARIAN (jalankan sekali dari editor
+// jika baris jadwal_harian belum ada di sheet konfigurasi)
+// ======================================================
+function initJadwalHarian() {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName('konfigurasi');
+  if (!sheet) {
+    Logger.log('Sheet konfigurasi tidak ditemukan.');
+    return;
+  }
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === 'jadwal_harian') {
+      Logger.log('Baris jadwal_harian sudah ada. Tidak perlu init ulang.');
+      return;
+    }
+  }
+  const defaultJadwal = {
+    "1": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+    "2": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+    "3": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+    "4": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+    "5": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+    "6": {"libur":false,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"},
+    "7": {"libur":true,"masuk_mulai":"06:00","masuk_akhir":"07:15","pulang_mulai":"15:00","pulang_akhir":"17:00"}
+  };
+  sheet.appendRow(['jadwal_harian', JSON.stringify(defaultJadwal), 'Jadwal per hari (JSON)']);
+  Logger.log('Berhasil! Baris jadwal_harian ditambahkan ke sheet konfigurasi.');
+}
+
+function pancinganIzinDrive() {
+  // Mengambil ID folder dari konfigurasi Anda di atas
+  // Pastikan ID ini benar agar tidak error 'Folder not found'
+  const folderId = PARENT_FOLDER_ID; 
+  
+  // Perintah ini akan memaksa Google meminta izin akses Drive
+  const folder = DriveApp.getFolderById(folderId);
+  
+  // Jika berhasil, nama folder akan muncul di log
+  Logger.log("Sukses! Izin Drive sudah diberikan. Nama Folder: " + folder.getName());
+}
+
+// ======================================================
+// FUNGSI FORMAT WAKTU (VERSI PAKSA WITA / MAKASSAR)
+// ======================================================
+function formatWaktuSheet(waktu, formatPola) {
+  try {
+    // 1. Cek validitas data
+    if (!waktu) return "-";
+    
+    // 2. Pastikan input menjadi object Date
+    var dateObj = (waktu instanceof Date) ? waktu : new Date(waktu);
+    
+ 
+    var zonaWaktu = 'Asia/Jakarta'; 
+    
+    // 4. Format dan kembalikan hasil
+    return Utilities.formatDate(dateObj, zonaWaktu, formatPola);
+    
+  } catch (e) {
+    return "Error Waktu: " + e.toString();
+  }
+}
+function CEK_ZONA_WAKTU_SEKARANG() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var timezone = ss.getSpreadsheetTimeZone();
+  var jamServer = new Date();
+  var jamFormatted = Utilities.formatDate(jamServer, timezone, "HH:mm:ss");
+  
+  console.log("=== HASIL PENGECEKAN ===");
+  console.log("1. ID Spreadsheet: " + SPREADSHEET_ID);
+  console.log("2. Zona Waktu Settingan File: " + timezone);
+  console.log("3. Jam Sekarang (Sesuai Zona Waktu tsb): " + jamFormatted);
+  console.log("========================");
+}
+// ============================================================
+// DAFTAR HADIR GURU — Ambil status absensi existing
+// Kolom absensi: A=Tanggal, B=NISN, C=Nama, D=Kelas, E=JamDatang, F=JamPulang, G=Keterangan, H=Status
+// ============================================================
+function getDaftarHadirByKelasAndTanggal(kelas, tanggal) {
+  try {
+    const ss = getSpreadsheet();
+    const absensiSheet = ss.getSheetByName('absensi');
+    if (!absensiSheet) return { success: true, data: {} };
+
+    const data = absensiSheet.getDataRange().getValues();
+    // result: { nisn: { status, hasJamDatang } }
+    // hasJamDatang = true → sudah ada jam (scan QR / input guru hari ini) → dikunci
+    const result = {};
+
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const rowDate   = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      const rowNisn   = String(data[i][1]).replace(/^'/, '').trim();
+      const rowKelas  = String(data[i][3]).trim();
+      const rowStatus = String(data[i][7]).trim();
+
+      if (rowDate === tanggal && rowKelas === kelas && rowStatus) {
+        let jamDatang = data[i][4];
+        if (jamDatang instanceof Date) jamDatang = formatWaktuSheet(jamDatang, 'HH:mm');
+        else jamDatang = String(jamDatang || '').substring(0, 5);
+
+        result[rowNisn] = {
+          status:       rowStatus.toLowerCase(),
+          jamDatang:    jamDatang,
+          hasJamDatang: true  // semua yang sudah punya record dikunci agar tidak tertimpa
+        };
+      }
+    }
+
+    return { success: true, data: result };
+  } catch (e) {
+    return { success: false, message: e.toString(), data: {} };
+  }
+}
+
+// ============================================================
+// DAFTAR HADIR GURU — Ambil detail masuk+pulang per kelas & tanggal
+// Returns: { nisn: { status, jamDatang, jamPulang, rowIndex } }
+// ============================================================
+function getDaftarHadirDetailByKelasAndTanggal(kelas, tanggal) {
+  try {
+    const ss = getSpreadsheet();
+    const absensiSheet = ss.getSheetByName('absensi');
+    if (!absensiSheet) return { success: true, data: {} };
+
+    const data = absensiSheet.getDataRange().getValues();
+    const result = {};
+
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const rowDate  = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      const rowNisn  = String(data[i][1]).replace(/^'/, '').trim();
+      const rowKelas = String(data[i][3]).trim();
+      if (rowDate !== tanggal || rowKelas !== kelas) continue;
+
+      let jamDatang = data[i][4];
+      if (jamDatang instanceof Date) jamDatang = formatWaktuSheet(jamDatang, 'HH:mm');
+      else jamDatang = String(jamDatang || '').substring(0, 5);
+
+      let jamPulang = data[i][5];
+      if (jamPulang instanceof Date) jamPulang = formatWaktuSheet(jamPulang, 'HH:mm');
+      else jamPulang = String(jamPulang || '').substring(0, 5);
+
+      result[rowNisn] = {
+        status:    String(data[i][7] || '').toLowerCase(),
+        jamDatang: jamDatang,
+        jamPulang: jamPulang,
+        rowIndex:  i + 1   // 1-based untuk .getRange()
+      };
+    }
+    return { success: true, data: result };
+  } catch (e) {
+    return { success: false, message: e.toString(), data: {} };
+  }
+}
+
+// ============================================================
+// DAFTAR HADIR GURU — Catat pulang SATU siswa (via scan/manual)
+// ============================================================
+function submitPulangSatu(nisn, kelas, tanggal, namaPengirim) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    const ss = getSpreadsheet();
+    const absensiSheet = ss.getSheetByName('absensi');
+    if (!absensiSheet) return { success: false, message: 'Sheet absensi tidak ditemukan.' };
+
+    // Cek hari libur
+    const todayStr = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    if (tanggal === todayStr) {
+      const configResult = getAppConfig();
+      const config = configResult.success ? configResult.data : {};
+      const dayIndex = formatWaktuSheet(new Date(), 'u');
+      const dayNames = {'1':'Senin','2':'Selasa','3':'Rabu','4':'Kamis','5':'Jumat','6':'Sabtu','7':'Minggu'};
+      if (config.jadwal_harian) {
+        const sc = config.jadwal_harian[dayIndex];
+        if (!sc || sc.libur) {
+          return { success: false, message: `Gagal! Hari ${dayNames[dayIndex]||''} adalah hari libur.` };
+        }
+      }
+    }
+
+    // Ambil config jam pulang
+    const configResult2 = getAppConfig();
+    const cfg = configResult2.success ? configResult2.data : {};
+    const dayIdx = formatWaktuSheet(new Date(), 'u');
+    let pulangMulai = cfg.jam_pulang_mulai || '15:00';
+    if (cfg.jadwal_harian && cfg.jadwal_harian[dayIdx] && !cfg.jadwal_harian[dayIdx].libur) {
+      pulangMulai = cfg.jadwal_harian[dayIdx].pulang_mulai || pulangMulai;
+    }
+
+    const nisnClean = String(nisn).trim();
+    const jamSekarang = formatWaktuSheet(new Date(), 'HH:mm:ss');
+    const nowTimeStr  = formatWaktuSheet(new Date(), 'HH:mm');
+
+    // Cari baris absensi siswa ini untuk tanggal tersebut
+    const data = absensiSheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const rowDate  = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      const rowNisn  = String(data[i][1]).replace(/^'/, '').trim();
+      const rowKelas = String(data[i][3]).trim();
+      if (rowDate !== tanggal || rowNisn !== nisnClean || rowKelas !== kelas) continue;
+
+      // Cek sudah pulang?
+      const jamPulangAda = data[i][5];
+      const jamPulangStr = jamPulangAda instanceof Date
+        ? formatWaktuSheet(jamPulangAda, 'HH:mm') : String(jamPulangAda || '').trim();
+      if (jamPulangStr) {
+        return { success: false, message: `${data[i][2]} sudah tercatat pulang (${jamPulangStr}).` };
+      }
+
+      // Hitung keterangan
+      const existingKet = String(data[i][6] || '');
+      let ketBaru = existingKet;
+      if (nowTimeStr < pulangMulai) {
+        ketBaru = (ketBaru ? ketBaru + ' & ' : '') + 'Pulang Cepat';
+      }
+      absensiSheet.getRange(i + 1, 6).setValue(jamSekarang);
+      absensiSheet.getRange(i + 1, 7).setValue(ketBaru);
+
+      return {
+        success: true,
+        nama: String(data[i][2]),
+        jamPulang: jamSekarang,
+        message: `${data[i][2]} berhasil dicatat pulang (${jamSekarang})`
+      };
+    }
+    return { success: false, message: 'Data absen masuk siswa ini tidak ditemukan. Pastikan sudah absen masuk.' };
+  } catch (e) {
+    return { success: false, message: 'Gagal: ' + e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ============================================================
+// DAFTAR HADIR GURU — Simpan jam pulang massal per kelas
+// pulangList: [{ nisn, rowIndex }]  — hanya yang di-centang
+// ============================================================
+function submitPulangGuru(pulangList, tanggal, namaPengirim) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const ss = getSpreadsheet();
+    const absensiSheet = ss.getSheetByName('absensi');
+    if (!absensiSheet) return { success: false, message: 'Sheet absensi tidak ditemukan.' };
+
+    // Cek hari libur
+    const todayStr = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    if (tanggal === todayStr) {
+      const configResult = getAppConfig();
+      const config = configResult.success ? configResult.data : {};
+      const dayIndex = formatWaktuSheet(new Date(), 'u');
+      const dayNames = {'1':'Senin','2':'Selasa','3':'Rabu','4':'Kamis','5':'Jumat','6':'Sabtu','7':'Minggu'};
+      if (config.jadwal_harian) {
+        const sc = config.jadwal_harian[dayIndex];
+        if (!sc || sc.libur) {
+          return { success: false, message: `Gagal! Hari ${dayNames[dayIndex]||''} adalah hari libur.` };
+        }
+      }
+    }
+
+    const jamSekarang  = formatWaktuSheet(new Date(), 'HH:mm:ss');
+    const nowTimeStr   = formatWaktuSheet(new Date(), 'HH:mm');
+    const configResult2 = getAppConfig();
+    const cfg2 = configResult2.success ? configResult2.data : {};
+    const dayIdx2 = formatWaktuSheet(new Date(), 'u');
+    let pulangMulai = cfg2.jam_pulang_mulai || '15:00';
+    if (cfg2.jadwal_harian && cfg2.jadwal_harian[dayIdx2] && !cfg2.jadwal_harian[dayIdx2].libur) {
+      pulangMulai = cfg2.jadwal_harian[dayIdx2].pulang_mulai || pulangMulai;
+    }
+
+    let count = 0;
+    for (const item of pulangList) {
+      if (!item.rowIndex) continue;
+      // Keterangan pulang
+      const existing = absensiSheet.getRange(item.rowIndex, 7).getValue() || '';
+      let ketBaru = String(existing);
+      if (nowTimeStr < pulangMulai) {
+        ketBaru = (ketBaru ? ketBaru + ' & ' : '') + 'Pulang Cepat (Input: ' + (namaPengirim || 'Guru') + ')';
+      }
+      absensiSheet.getRange(item.rowIndex, 6).setValue(jamSekarang);  // Kolom F: Jam Pulang
+      absensiSheet.getRange(item.rowIndex, 7).setValue(ketBaru);       // Kolom G: Keterangan
+      count++;
+    }
+
+    return { success: true, message: `${count} siswa berhasil dicatat pulang.` };
+  } catch (e) {
+    return { success: false, message: 'Gagal: ' + e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ============================================================
+// DAFTAR HADIR GURU — Simpan/Timpa absensi satu kelas satu tanggal
+// dataList: [{ nisn, nama, kelas, status }]
+// ============================================================
+function submitDaftarHadirGuru(dataList, tanggal, namaPengirim) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const ss = getSpreadsheet();
+    const absensiSheet = ss.getSheetByName('absensi');
+    if (!absensiSheet) return { success: false, message: 'Sheet absensi tidak ditemukan.' };
+
+    // ── CEK HARI LIBUR untuk tanggal yang di-submit ──
+    const todayStr = formatWaktuSheet(new Date(), 'yyyy-MM-dd');
+    if (tanggal === todayStr) {
+      // Cek jadwal_harian
+      const configResult = getAppConfig();
+      const config = configResult.success ? configResult.data : {};
+      const dayIndex = formatWaktuSheet(new Date(), 'u');
+      const dayNames = {'1':'Senin','2':'Selasa','3':'Rabu','4':'Kamis','5':'Jumat','6':'Sabtu','7':'Minggu'};
+      if (config.jadwal_harian) {
+        const todaySchedule = config.jadwal_harian[dayIndex];
+        if (!todaySchedule || todaySchedule.libur) {
+          return { success: false, message: `Gagal! Hari ${dayNames[dayIndex] || ''} ditetapkan sebagai hari libur. Absensi tidak bisa diinput.` };
+        }
+      }
+      // Cek tanggal merah
+      const liburSheet = ss.getSheetByName('hari_libur');
+      if (liburSheet) {
+        const liburData = liburSheet.getDataRange().getValues();
+        for (let i = 1; i < liburData.length; i++) {
+          if (!liburData[i][0]) continue;
+          if (formatWaktuSheet(new Date(liburData[i][0]), 'yyyy-MM-dd') === todayStr) {
+            return { success: false, message: `Gagal! Hari ini adalah hari libur: ${liburData[i][1]}. Absensi tidak bisa diinput.` };
+          }
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────
+
+    // Status map frontend ke format tersimpan
+    const statusMap = { hadir: 'Hadir', sakit: 'Sakit', izin: 'Izin', alpa: 'Alpa' };
+
+    // 1. Hapus baris lama untuk kelas+tanggal ini (timpa data)
+    const allData = absensiSheet.getDataRange().getValues();
+    const rowsToDelete = [];
+    for (let i = 1; i < allData.length; i++) {
+      if (!allData[i][0]) continue;
+      const rowDate  = formatWaktuSheet(new Date(allData[i][0]), 'yyyy-MM-dd');
+      const rowKelas = String(allData[i][3]).trim();
+      const rowNisn  = String(allData[i][1]).replace(/^'/, '').trim();
+      const isInList = dataList.some(d => String(d.nisn).trim() === rowNisn);
+      if (rowDate === tanggal && rowKelas === dataList[0]?.kelas && isInList) {
+        rowsToDelete.push(i + 1);
+      }
+    }
+    for (let r = rowsToDelete.length - 1; r >= 0; r--) {
+      absensiSheet.deleteRow(rowsToDelete[r]);
+    }
+
+    // 2. Tulis baris baru — sertakan jam & keterangan waktu jika input hari ini
+    const jamSekarang = formatWaktuSheet(new Date(), 'HH:mm:ss');
+    const nowTimeStr  = formatWaktuSheet(new Date(), 'HH:mm');
+    const isToday = (tanggal === todayStr);
+
+    // Ambil config jam untuk hitung terlambat / pulang cepat
+    const configResult2 = getAppConfig();
+    const cfg = configResult2.success ? configResult2.data : {};
+    const dayIdx2 = formatWaktuSheet(new Date(), 'u');
+    let cfgJam = {
+      jam_masuk_akhir:  '07:15',
+      jam_pulang_mulai: '15:00',
+      jam_pulang_akhir: '17:00'
+    };
+    if (cfg.jadwal_harian && cfg.jadwal_harian[dayIdx2] && !cfg.jadwal_harian[dayIdx2].libur) {
+      const sc = cfg.jadwal_harian[dayIdx2];
+      cfgJam.jam_masuk_akhir  = sc.masuk_akhir  || cfgJam.jam_masuk_akhir;
+      cfgJam.jam_pulang_mulai = sc.pulang_mulai || cfgJam.jam_pulang_mulai;
+      cfgJam.jam_pulang_akhir = sc.pulang_akhir || cfgJam.jam_pulang_akhir;
+    } else {
+      cfgJam.jam_masuk_akhir  = cfg.jam_masuk_akhir  || cfgJam.jam_masuk_akhir;
+      cfgJam.jam_pulang_mulai = cfg.jam_pulang_mulai || cfgJam.jam_pulang_mulai;
+      cfgJam.jam_pulang_akhir = cfg.jam_pulang_akhir || cfgJam.jam_pulang_akhir;
+    }
+
+    const newRows = dataList.map(d => {
+      const statusFinal = statusMap[d.status] || d.status;
+      const isHadir     = (statusFinal === 'Hadir');
+
+      let jamDatangRow = '';
+      let keteranganRow = 'Input: ' + (namaPengirim || 'Guru');
+
+      if (isToday && isHadir) {
+        jamDatangRow = jamSekarang;
+        // Hitung keterangan waktu
+        if (nowTimeStr > cfgJam.jam_masuk_akhir) {
+          const lateMin = calculateTimeDiff(cfgJam.jam_masuk_akhir, nowTimeStr);
+          keteranganRow = `Terlambat ${lateMin} menit (Input: ${namaPengirim || 'Guru'})`;
+        } else {
+          keteranganRow = 'Tepat Waktu (Input: ' + (namaPengirim || 'Guru') + ')';
+        }
+      }
+
+      return [
+        tanggal,                    // Kolom A: Tanggal
+        "'" + String(d.nisn).trim(),// Kolom B: NISN
+        d.nama,                     // Kolom C: Nama
+        d.kelas,                    // Kolom D: Kelas
+        jamDatangRow,               // Kolom E: Jam Datang
+        '',                         // Kolom F: Jam Pulang
+        keteranganRow,              // Kolom G: Keterangan
+        statusFinal                 // Kolom H: Status
+      ];
+    });
+
+    if (newRows.length > 0) {
+      absensiSheet.getRange(
+        absensiSheet.getLastRow() + 1, 1, newRows.length, 8
+      ).setValues(newRows);
+    }
+
+    return { success: true, message: `${newRows.length} data absensi berhasil disimpan.` };
+
+  } catch (e) {
+    return { success: false, message: 'Gagal menyimpan: ' + e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ============================================================================
+   PENGATURAN TAMPILAN — LOGO & BACKGROUND HALAMAN LOGIN (ADMIN)
+   Diadaptasi dari aplikasi Tahfidz. Disimpan di sheet 'konfigurasi' sebagai
+   key-value ('logo_url', 'background_url'), gambar upload disimpan ke folder
+   Drive di bawah PARENT_FOLDER_ID lalu dijadikan link publik untuk <img src>.
+   ============================================================================ */
+
+// Ambil/buat folder khusus penyimpanan logo & background di Drive
+function _getOrCreateTampilanFolder() {
+  const parent = DriveApp.getFolderById(PARENT_FOLDER_ID);
+  const folderName = 'Tampilan_AbsensiSholatSiswa';
+  const it = parent.getFoldersByName(folderName);
+  if (it.hasNext()) return it.next();
+  return parent.createFolder(folderName);
+}
+
+// Upload gambar (base64) ke Drive, jadikan bisa dilihat publik, kembalikan URL untuk <img src>
+function _uploadGambarTampilanASS(base64, mimeType, fileName) {
+  const folder = _getOrCreateTampilanFolder();
+  const bytes = Utilities.base64Decode(base64);
+  const blob = Utilities.newBlob(bytes, mimeType || 'image/png', fileName || ('tampilan_' + Date.now()));
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return 'https://lh3.googleusercontent.com/d/' + file.getId();
+}
+
+// Upsert 1 baris key-value ke sheet 'konfigurasi'
+function _setKonfigurasiValue(sheet, key, value) {
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) { sheet.getRange(i + 1, 2).setValue(value); return; }
+  }
+  sheet.appendRow([key, value]);
+}
+
+function _hapusKonfigurasiValue(sheet, key) {
+  const data = sheet.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (data[i][0] === key) { sheet.deleteRow(i + 1); return; }
+  }
+}
+
+// PUBLIK (tanpa token) — dipanggil di awal, sebelum login, untuk menampilkan
+// logo & background kustom (jika admin pernah menggantinya). Hanya mengembalikan
+// URL gambar, tidak ada data sensitif, jadi aman diakses tanpa autentikasi.
+function getPengaturanTampilanAwal() {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('konfigurasi');
+    let logo_url = '', background_url = '', app_background_url = '';
+    if (sheet) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0] === 'logo_url') logo_url = data[i][1] || '';
+        if (data[i][0] === 'background_url') background_url = data[i][1] || '';
+        if (data[i][0] === 'app_background_url') app_background_url = data[i][1] || '';
+      }
+    }
+    return { success: true, logo_url: logo_url, background_url: background_url, app_background_url: app_background_url };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// Admin mengganti logo/ikon, background halaman login, dan/atau background setelah login (dashboard).
+// Bisa lewat upload file (...Base64) ATAU cukup tempel URL gambar (...UrlText).
+function saveTampilanAplikasi(token, form) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    verifyUser(token, 'admin');
+
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName('konfigurasi');
+    if (!sheet) {
+      sheet = ss.insertSheet('konfigurasi');
+      sheet.appendRow(['key', 'value', 'keterangan']);
+    }
+
+    let logoUrl = null, backgroundUrl = null, appBackgroundUrl = null;
+
+    if (form.logoBase64) {
+      logoUrl = _uploadGambarTampilanASS(form.logoBase64, form.logoMime, form.logoFileName);
+    } else if (form.logoUrlText) {
+      logoUrl = form.logoUrlText.trim();
+    }
+    if (logoUrl) _setKonfigurasiValue(sheet, 'logo_url', logoUrl);
+
+    if (form.backgroundBase64) {
+      backgroundUrl = _uploadGambarTampilanASS(form.backgroundBase64, form.backgroundMime, form.backgroundFileName);
+    } else if (form.backgroundUrlText) {
+      backgroundUrl = form.backgroundUrlText.trim();
+    }
+    if (backgroundUrl) _setKonfigurasiValue(sheet, 'background_url', backgroundUrl);
+
+    if (form.appBackgroundBase64) {
+      appBackgroundUrl = _uploadGambarTampilanASS(form.appBackgroundBase64, form.appBackgroundMime, form.appBackgroundFileName);
+    } else if (form.appBackgroundUrlText) {
+      appBackgroundUrl = form.appBackgroundUrlText.trim();
+    }
+    if (appBackgroundUrl) _setKonfigurasiValue(sheet, 'app_background_url', appBackgroundUrl);
+
+    if (!logoUrl && !backgroundUrl && !appBackgroundUrl) {
+      return { status: 'error', message: 'Tidak ada perubahan yang dikirim.' };
+    }
+
+    return {
+      status: 'success', message: 'Tampilan aplikasi berhasil diperbarui.',
+      logo_url: logoUrl, background_url: backgroundUrl, app_background_url: appBackgroundUrl
+    };
+  } catch (e) {
+    return { status: 'error', message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ======================================================================
+// FITUR BARU: LAPORAN ABSENSI SHOLAT BULANAN DETAIL PER-SISWA
+// ======================================================================
+// Fitur ini TERPISAH dari halaman absensi sholat biasa,
+// namun tetap TERHUBUNG dengan data di sheet 'absensi_sholat'.
+// ======================================================================
+
+/**
+ * LAPORAN BULANAN DETAIL SHOLAT PER-SISWA
+ * Menghasilkan laporan yang menampilkan:
+ * - Per siswa: berapa kali TIDAK HADIR & IZIN per waktu sholat dalam sebulan
+ * - Detail tanggal & waktu untuk setiap ketidakhadiran/izin
+ * - Ringkasan per kelas
+ * 
+ * Parameter:
+ *  bulan   : 0-11 (Januari=0)
+ *  tahun   : angka 4 digit
+ *  kelas   : string nama kelas atau null (semua)
+ */
+function getLaporanSholatDetailBulanan(bulan, tahun, kelas) {
+  try {
+    const ss = getSpreadsheet();
+    const sholatSheet = ss.getSheetByName('absensi_sholat');
+    const siswaSheet  = ss.getSheetByName('siswa');
+    if (!sholatSheet || !siswaSheet) return { success: false, message: 'Sheet tidak ditemukan.' };
+
+    const year  = parseInt(tahun, 10);
+    const month = parseInt(bulan, 10);
+    if (isNaN(year) || isNaN(month)) {
+      return { success: false, message: 'Bulan/tahun tidak valid.' };
+    }
+    const startStr = formatWaktuSheet(new Date(year, month, 1), 'yyyy-MM-dd');
+    const endStr   = formatWaktuSheet(new Date(year, month + 1, 0), 'yyyy-MM-dd');
+    const normKelas = (k) => String(k || '').trim().toUpperCase().replace(/\s+/g, ' ');
+
+    // 1. Ambil semua siswa (dengan filter kelas jika ada)
+    const rawSiswa = siswaSheet.getDataRange().getValues();
+    const fKelasList = kelas
+      ? String(kelas).split(',').map(k => normKelas(k)).filter(Boolean)
+      : [];
+    const siswaList = [];
+    for (let i = 1; i < rawSiswa.length; i++) {
+      if (!rawSiswa[i][0]) continue;
+      const kelasAsli = String(rawSiswa[i][8]).trim();
+      if (fKelasList.length > 0 && !fKelasList.includes(normKelas(kelasAsli))) continue;
+      const nisnBersih = String(rawSiswa[i][1]).replace(/^'/, '').trim();
+      siswaList.push({ nisn: nisnBersih, nama: rawSiswa[i][0], kelas: kelasAsli });
+    }
+    siswaList.sort((a, b) => a.kelas.localeCompare(b.kelas) || a.nama.localeCompare(b.nama));
+
+    if (siswaList.length === 0) {
+      return { success: true, data: [], waktuList: ['Subuh','Dhuha','Dzuhur','Ashar','Maghrib','Isya'], periode: startStr + ' s/d ' + endStr, message: 'Tidak ada siswa.' };
+    }
+
+    // 2. Ambil semua data absensi sholat di bulan tersebut
+    const waktuList = ['Subuh','Dhuha','Dzuhur','Ashar','Maghrib','Isya'];
+    const data = sholatSheet.getDataRange().getValues();
+
+    // Struktur per siswa: { totalHadir, totalIzin, totalTidak, perWaktu: { Subuh: { hadir, izin, tidak }, ... }, detailTidakHadir: [{tanggal, waktu}], detailIzin: [{tanggal, waktu}] }
+    const siswaMap = {};
+    siswaList.forEach(s => {
+      siswaMap[s.nisn] = {
+        nisn: s.nisn, nama: s.nama, kelas: s.kelas,
+        perWaktu: {},
+        totalHadir: 0, totalIzin: 0, totalTidak: 0,
+        detailTidakHadir: [], detailIzin: []
+      };
+      waktuList.forEach(w => { siswaMap[s.nisn].perWaktu[w] = { hadir: 0, izin: 0, tidak: 0 }; });
+    });
+
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const tglStr = formatWaktuSheet(new Date(data[i][0]), 'yyyy-MM-dd');
+      if (tglStr < startStr || tglStr > endStr) continue;
+      const nisn = String(data[i][1]).replace(/^'/, '').trim();
+      if (!siswaMap[nisn]) continue;
+
+      const waktu  = String(data[i][4]).trim();
+      const status = String(data[i][5]).trim();
+      const ket    = data[i][6] || '';
+
+      if (!siswaMap[nisn].perWaktu[waktu]) {
+        siswaMap[nisn].perWaktu[waktu] = { hadir: 0, izin: 0, tidak: 0 };
+      }
+
+      if (status === 'Hadir') {
+        siswaMap[nisn].perWaktu[waktu].hadir++;
+        siswaMap[nisn].totalHadir++;
+      } else if (status === 'Izin / Uzur' || status === 'Izin') {
+        siswaMap[nisn].perWaktu[waktu].izin++;
+        siswaMap[nisn].totalIzin++;
+        siswaMap[nisn].detailIzin.push({ tanggal: tglStr, waktu: waktu, keterangan: ket });
+      } else {
+        siswaMap[nisn].perWaktu[waktu].tidak++;
+        siswaMap[nisn].totalTidak++;
+        siswaMap[nisn].detailTidakHadir.push({ tanggal: tglStr, waktu: waktu, keterangan: ket });
+      }
+    }
+
+    // 3. Hitung persentase kehadiran
+    const result = siswaList.map(s => {
+      const r = siswaMap[s.nisn];
+      const total = r.totalHadir + r.totalIzin + r.totalTidak;
+      const persen = total > 0 ? Math.round((r.totalHadir / total) * 100) : 0;
+      return {
+        nisn: r.nisn, nama: r.nama, kelas: r.kelas,
+        perWaktu: r.perWaktu,
+        totalHadir: r.totalHadir, totalIzin: r.totalIzin, totalTidak: r.totalTidak,
+        detailTidakHadir: r.detailTidakHadir,
+        detailIzin: r.detailIzin,
+        persen: persen
+      };
+    });
+
+    return { success: true, data: result, waktuList: waktuList, periode: startStr + ' s/d ' + endStr };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * LAPORAN RINGKASAN PER-KELAS (tanpa detail per-siswa)
+ * Untuk tampilan ringkas di dashboard
+ */
+function getRekapSholatPerKelas(bulan, tahun) {
+  try {
+    const result = getLaporanSholatDetailBulanan(bulan, tahun, null);
+    if (!result.success) return result;
+
+    // Gabungkan per kelas
+    const kelasMap = {};
+    result.data.forEach(s => {
+      const k = s.kelas;
+      if (!kelasMap[k]) {
+        kelasMap[k] = { kelas: k, totalSiswa: 0, totalHadir: 0, totalIzin: 0, totalTidak: 0, siswa: [] };
+      }
+      kelasMap[k].totalSiswa++;
+      kelasMap[k].totalHadir += s.totalHadir;
+      kelasMap[k].totalIzin += s.totalIzin;
+      kelasMap[k].totalTidak += s.totalTidak;
+      kelasMap[k].siswa.push({ nisn: s.nisn, nama: s.nama, totalHadir: s.totalHadir, totalIzin: s.totalIzin, totalTidak: s.totalTidak, persen: s.persen });
+    });
+
+    const rekapKelas = Object.values(kelasMap).sort((a, b) => a.kelas.localeCompare(b.kelas));
+    rekapKelas.forEach(k => {
+      const total = k.totalHadir + k.totalIzin + k.totalTidak;
+      k.persenKelas = total > 0 ? Math.round((k.totalHadir / total) * 100) : 0;
+    });
+
+    return { success: true, data: rekapKelas, waktuList: result.waktuList, periode: result.periode };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * EXPORT LAPORAN SHOLAT DETAIL BULANAN KE EXCEL
+ * Menghasilkan file Google Sheets dengan link download XLSX
+ */
+function generateExcelLaporanSholatDetail(bulan, tahun, kelas) {
+  try {
+    const result = getLaporanSholatDetailBulanan(bulan, tahun, kelas);
+    if (!result.success) return result;
+
+    const monthNames = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+    const fileName = "Laporan Sholat " + monthNames[parseInt(bulan)] + " " + tahun + (kelas ? " - Kelas " + kelas : "") + " - " + formatWaktuSheet(new Date(), 'ddMMyyyy_HHmm');
+    const ss = SpreadsheetApp.create(fileName);
+    const sheet = ss.getSheets()[0];
+    sheet.setName('Laporan Detail Sholat');
+
+    const waktuList = result.waktuList;
+
+    // Judul
+    sheet.getRange("A1").setValue("LAPORAN ABSENSI SHOLAT BULANAN").setFontWeight("bold").setFontSize(14).setFontColor("#1a4731");
+    sheet.getRange("A2").setValue("Periode: " + result.periode + (kelas ? " | Kelas: " + kelas : "")).setFontWeight("bold").setFontSize(11);
+
+    // Header tabel
+    const startRow = 4;
+    const headers = ['No', 'Nama Siswa', 'NISN', 'Kelas'];
+    waktuList.forEach(w => {
+      headers.push(w + ' H');
+      headers.push(w + ' Izin');
+      headers.push(w + ' Tdk Hdr');
+    });
+    headers.push('Total Hadir', 'Total Izin', 'Total Tidak Hadir', '% Hadir');
+
+    sheet.getRange(startRow, 1, 1, headers.length).setValues([headers])
+      .setFontWeight('bold').setBackground('#1a4731').setFontColor('#FFFFFF')
+      .setHorizontalAlignment('center').setBorder(true, true, true, true, true, true, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID);
+
+    // Isi data
+    const rows = result.data.map((d, i) => {
+      const row = [i + 1, d.nama, "'" + d.nisn, d.kelas];
+      waktuList.forEach(w => {
+        const pw = d.perWaktu[w] || { hadir: 0, izin: 0, tidak: 0 };
+        row.push(pw.hadir, pw.izin, pw.tidak);
+      });
+      row.push(d.totalHadir, d.totalIzin, d.totalTidak, d.persen + '%');
+      return row;
+    });
+
+    if (rows.length > 0) {
+      sheet.getRange(startRow + 1, 1, rows.length, headers.length).setValues(rows);
+      // Border body
+      sheet.getRange(startRow + 1, 1, rows.length, headers.length)
+        .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN);
+      // Zebra striping
+      for (let i = 0; i < rows.length; i++) {
+        if (i % 2 === 1) {
+          sheet.getRange(startRow + 1 + i, 1, 1, headers.length).setBackground('#F0FDF4');
+        }
+      }
+      // Center alignment
+      sheet.getRange(startRow + 1, 1, rows.length, headers.length).setHorizontalAlignment('center');
+      sheet.getRange(startRow + 1, 2, rows.length, 1).setHorizontalAlignment('left');
+    }
+
+    // Lebar kolom
+    sheet.setColumnWidth(1, 35);
+    sheet.setColumnWidth(2, 200);
+    sheet.setColumnWidth(3, 100);
+    sheet.setColumnWidth(4, 60);
+    for (let c = 5; c <= 4 + waktuList.length * 3; c++) {
+      sheet.setColumnWidth(c, 30);
+    }
+    const statStart = 5 + waktuList.length * 3;
+    for (let c = statStart; c <= statStart + 3; c++) {
+      sheet.setColumnWidth(c, 55);
+    }
+
+    sheet.setFrozenRows(startRow);
+    sheet.setFrozenColumns(4);
+
+    // === SHEET 2: DETAIL TIDAK HADIR PER SISWA ===
+    const sheet2 = ss.insertSheet('Detail Tidak Hadir');
+    const headers2 = ['No', 'Nama Siswa', 'NISN', 'Kelas', 'Tanggal', 'Waktu Sholat', 'Keterangan'];
+    sheet2.getRange(1, 1, 1, headers2.length).setValues([headers2])
+      .setFontWeight('bold').setBackground('#7f1d1d').setFontColor('#FFFFFF')
+      .setHorizontalAlignment('center').setBorder(true, true, true, true, true, true, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID);
+
+    let rowNo = 0;
+    const rows2 = [];
+    result.data.forEach(d => {
+      d.detailTidakHadir.forEach(det => {
+        rowNo++;
+        rows2.push([rowNo, d.nama, "'" + d.nisn, d.kelas, det.tanggal, det.waktu, det.keterangan]);
+      });
+    });
+
+    if (rows2.length > 0) {
+      sheet2.getRange(2, 1, rows2.length, headers2.length).setValues(rows2);
+      sheet2.getRange(2, 1, rows2.length, headers2.length)
+        .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN);
+      sheet2.getRange(2, 1, rows2.length, headers2.length).setHorizontalAlignment('center');
+      sheet2.getRange(2, 2, rows2.length, 1).setHorizontalAlignment('left');
+    }
+    sheet2.autoResizeColumns(1, headers2.length);
+    sheet2.setFrozenRows(1);
+
+    // === SHEET 3: DETAIL IZIN PER SISWA ===
+    const sheet3 = ss.insertSheet('Detail Izin');
+    const headers3 = ['No', 'Nama Siswa', 'NISN', 'Kelas', 'Tanggal', 'Waktu Sholat', 'Keterangan'];
+    sheet3.getRange(1, 1, 1, headers3.length).setValues([headers3])
+      .setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#FFFFFF')
+      .setHorizontalAlignment('center').setBorder(true, true, true, true, true, true, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID);
+
+    rowNo = 0;
+    const rows3 = [];
+    result.data.forEach(d => {
+      d.detailIzin.forEach(det => {
+        rowNo++;
+        rows3.push([rowNo, d.nama, "'" + d.nisn, d.kelas, det.tanggal, det.waktu, det.keterangan]);
+      });
+    });
+
+    if (rows3.length > 0) {
+      sheet3.getRange(2, 1, rows3.length, headers3.length).setValues(rows3);
+      sheet3.getRange(2, 1, rows3.length, headers3.length)
+        .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID_THIN);
+      sheet3.getRange(2, 1, rows3.length, headers3.length).setHorizontalAlignment('center');
+      sheet3.getRange(2, 2, rows3.length, 1).setHorizontalAlignment('left');
+    }
+    sheet3.autoResizeColumns(1, headers3.length);
+    sheet3.setFrozenRows(1);
+
+    // Share & return URL
+    const fileId = ss.getId();
+    DriveApp.getFileById(fileId).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    return {
+      success: true,
+      url: "https://docs.google.com/spreadsheets/d/" + fileId + "/edit",
+      downloadUrl: "https://docs.google.com/spreadsheets/d/" + fileId + "/export?format=xlsx",
+      message: 'Laporan Excel berhasil dibuat.'
+    };
+  } catch (e) {
+    return { success: false, message: 'Gagal generate Excel: ' + e.toString() };
+  }
+}
+
+/**
+ * GENERATE PDF LAPORAN SHOLAT (untuk print)
+ * Menghasilkan HTML yang bisa di-print dari browser
+ */
+function getLaporanSholatPrintHTML(bulan, tahun, kelas) {
+  try {
+    const result = getLaporanSholatDetailBulanan(bulan, tahun, kelas);
+    if (!result.success) return result;
+
+    const monthNames = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+    const bulanStr = monthNames[parseInt(bulan)] + " " + tahun;
+    const kelasStr = kelas ? " - Kelas " + kelas : "";
+
+    // Build HTML tabel ringkas
+    const waktuList = result.waktuList;
+    const waktuShort = { Subuh: 'Sub', Dhuha: 'Dhu', 'Dzuhur & Ashar': 'Dzu/Ash', Maghrib: 'Mag', Isya: 'Isy' };
+
+    let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Laporan Sholat ' + bulanStr + '</title>';
+    html += '<style>';
+    html += '* { margin:0; padding:0; box-sizing:border-box; }';
+    html += 'body { font-family: Arial, sans-serif; padding: 20px; color: #1e293b; }';
+    html += 'h1 { text-align:center; color:#1a4731; font-size:18px; margin-bottom:4px; }';
+    html += 'h2 { text-align:center; color:#475569; font-size:13px; font-weight:normal; margin-bottom:16px; }';
+    html += 'table { width:100%; border-collapse:collapse; font-size:11px; margin-bottom:24px; }';
+    html += 'th { background:#1a4731; color:white; padding:6px 4px; border:1px solid #ddd; text-align:center; }';
+    html += 'td { padding:5px 4px; border:1px solid #ddd; text-align:center; }';
+    html += 'td.nama { text-align:left; }';
+    html += 'tr:nth-child(even) { background:#f0fdf4; }';
+    html += '.total-hadir { color:#16a34a; font-weight:bold; }';
+    html += '.total-tidak { color:#dc2626; font-weight:bold; }';
+    html += '.total-izin { color:#2563eb; font-weight:bold; }';
+    html += '.no-data { text-align:center; padding:40px; color:#94a3b8; }';
+    html += '.print-btn { text-align:center; margin:20px 0; }';
+    html += '.print-btn button { background:#1a4731; color:white; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:14px; }';
+    html += '.print-btn button:hover { background:#14532d; }';
+    html += '@media print { .print-btn { display:none; } body { padding:10px; } table { page-break-inside:auto; } }';
+    html += '</style></head><body>';
+
+    html += '<h1>LAPORAN ABSENSI SHOLAT BULANAN</h1>';
+    html += '<h2>' + bulanStr + kelasStr + '</h2>';
+
+    // Tabel ringkas: per siswa, per waktu sholat menampilkan "H/I/T" dalam sel kompak
+    html += '<table><thead><tr>';
+    html += '<th>No</th><th>Nama Siswa</th><th>NISN</th><th>Kelas</th>';
+    waktuList.forEach(w => { html += '<th>' + waktuShort[w] + '</th>'; });
+    html += '<th>Total H</th><th>Total Izin</th><th>Total Tdk</th><th>%</th>';
+    html += '</tr></thead><tbody>';
+
+    result.data.forEach((d, i) => {
+      html += '<tr>';
+      html += '<td>' + (i + 1) + '</td>';
+      html += '<td class="nama">' + d.nama + '</td>';
+      html += '<td>' + d.nisn + '</td>';
+      html += '<td>' + d.kelas + '</td>';
+      waktuList.forEach(w => {
+        const pw = d.perWaktu[w] || { hadir: 0, izin: 0, tidak: 0 };
+        const cell = pw.hadir + '/' + pw.izin + '/' + pw.tidak;
+        html += '<td>' + cell + '</td>';
+      });
+      html += '<td class="total-hadir">' + d.totalHadir + '</td>';
+      html += '<td class="total-izin">' + d.totalIzin + '</td>';
+      html += '<td class="total-tidak">' + d.totalTidak + '</td>';
+      html += '<td>' + d.persen + '%</td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+
+    // Tombol Print
+    html += '<div class="print-btn"><button onclick="window.print()">🖨️ Cetak / Print</button></div>';
+
+    html += '</body></html>';
+
+    return { success: true, html: html, message: 'HTML laporan berhasil dibuat.' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * HALAMAN HTML LENGKAP UNTUK FITUR LAPORAN ABSENSI SHOLAT
+ * Dipanggil dari doGet() atau sebagai file HTML terpisah
+ */
+function getLaporanSholatPageHtml() {
+  return '<!DOCTYPE html>' +
+'<html lang="id">' +
+'<head>' +
+'<meta charset="UTF-8">' +
+'<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+'<title>Laporan Absensi Sholat Bulanan</title>' +
+'<style>' +
+'*{margin:0;padding:0;box-sizing:border-box}' +
+'body{font-family:"Segoe UI",system-ui,sans-serif;background:#f8fafc;color:#1e293b;min-height:100vh}' +
+'.container{max-width:1200px;margin:0 auto;padding:20px}' +
+'header{background:linear-gradient(135deg,#1a4731,#2d6a4f);color:white;padding:20px 24px;border-radius:12px;margin-bottom:20px;display:flex;align-items:center;gap:12px}' +
+'header h1{font-size:20px;font-weight:700}' +
+'header p{font-size:12px;opacity:.85}' +
+'.back-btn{background:rgba(255,255,255,.2);border:none;color:white;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;margin-left:auto;text-decoration:none;display:inline-flex;align-items:center;gap:6px}' +
+'.back-btn:hover{background:rgba(255,255,255,.3)}' +
+'.filter-bar{background:white;border-radius:12px;padding:16px 20px;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:end;box-shadow:0 1px 3px rgba(0,0,0,.08)}' +
+'.filter-bar label{font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:4px}' +
+'.filter-bar select,.filter-bar button{padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:white;color:#1e293b}' +
+'.filter-bar select{min-width:120px}' +
+'.btn-primary{background:#1a4731;color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;transition:background .2s}' +
+'.btn-primary:hover{background:#14532d}' +
+'.btn-excel{background:#16a34a;color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px}' +
+'.btn-excel:hover{background:#15803d}' +
+'.btn-print{background:#2563eb;color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px}' +
+'.btn-print:hover{background:#1d4ed8}' +
+'.tab-bar{display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid #e2e8f0}' +
+'.tab-btn{padding:10px 20px;border:none;background:none;font-size:13px;font-weight:600;color:#64748b;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .2s}' +
+'.tab-btn.active{color:#1a4731;border-bottom-color:#1a4731}' +
+'.tab-btn:hover{color:#1a4731}' +
+'.tab-content{display:none}' +
+'.tab-content.active{display:block}' +
+'.card{background:white;border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}' +
+'.card h3{font-size:15px;color:#1a4731;margin-bottom:12px;display:flex;align-items:center;gap:8px}' +
+'.table-wrap{overflow-x:auto}' +
+'table{width:100%;border-collapse:collapse;font-size:12px}' +
+'th{background:#1a4731;color:white;padding:8px 6px;border:1px solid #0d3320;text-align:center;font-weight:600;white-space:nowrap}' +
+'td{padding:6px;border:1px solid #e2e8f0;text-align:center}' +
+'td.nama-cell{text-align:left;padding-left:8px}' +
+'tr:nth-child(even){background:#f0fdf4}' +
+'tr:hover{background:#dcfce7}' +
+'.badge-h{color:#16a34a;font-weight:700}' +
+'.badge-i{color:#2563eb;font-weight:700}' +
+'.badge-t{color:#dc2626;font-weight:700}' +
+'.percent{font-weight:700;color:#1a4731}' +
+'.no-data{text-align:center;padding:60px 20px;color:#94a3b8;font-size:14px}' +
+'.spinner{width:40px;height:40px;border:4px solid #e2e8f0;border-top:4px solid #1a4731;border-radius:50%;animation:spin .8s linear infinite;margin:40px auto}' +
+'@keyframes spin{to{transform:rotate(360deg)}}' +
+'.loading-overlay{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;color:#64748b}' +
+'.kelas-header{background:#0d5c4a;color:white;padding:8px 12px;border-radius:8px;font-weight:700;font-size:13px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}' +
+'.kelas-header span{font-size:12px;opacity:.85}' +
+'.detail-section{margin-top:12px;padding:12px;background:#f8fafc;border-radius:8px;border-left:4px solid #dc2626}' +
+'.detail-section.izin{border-left-color:#2563eb}' +
+'.detail-title{font-size:12px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px}' +
+'.detail-list{font-size:11px;color:#475569;line-height:1.8}' +
+'.detail-list span{display:inline-block;background:#fee2e2;color:#991b1b;padding:1px 8px;border-radius:4px;margin:2px;font-size:10px}' +
+'.detail-list.izin-list span{background:#dbeafe;color:#1e40af}' +
+'.export-section{background:white;border-radius:12px;padding:20px;margin-top:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}' +
+'.export-section h3{font-size:15px;color:#1a4731;margin-bottom:12px}' +
+'.export-btns{display:flex;gap:10px;flex-wrap:wrap}' +
+'.status-bar{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap}' +
+'.stat-card{background:white;border-radius:10px;padding:14px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);flex:1;min-width:140px;border-left:4px solid #1a4731}' +
+'.stat-card.izin-card{border-left-color:#2563eb}' +
+'.stat-card.tidak-card{border-left-color:#dc2626}' +
+'.stat-card.persen-card{border-left-color:#16a34a}' +
+'.stat-label{font-size:11px;color:#64748b;margin-bottom:2px}' +
+'.stat-value{font-size:22px;font-weight:700;color:#1e293b}' +
+'@media(max-width:768px){.filter-bar{flex-direction:column}.filter-bar select{width:100%}.export-btns{flex-direction:column}.export-btns button{width:100%}.status-bar{flex-direction:column}}' +
+'</style>' +
+'</head>' +
+'<body>' +
+'<div class="container">' +
+  '<header>' +
+    '<div><h1>📋 Laporan Absensi Sholat Bulanan</h1><p>Rekap ketidakhadiran & izin sholat per siswa per kelas</p></div>' +
+    '<a class="back-btn" href="javascript:goBack()">← Kembali</a>' +
+  '</header>' +
+
+  '<div class="filter-bar">' +
+    '<div><label>Bulan</label><select id="filterBulan"></select></div>' +
+    '<div><label>Tahun</label><select id="filterTahun"></select></div>' +
+    '<div><label>Kelas</label><select id="filterKelas"><option value="">Semua Kelas</option></select></div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button class="btn-primary" onclick="loadLaporan()">Tampilkan Laporan</button>' +
+    '</div>' +
+  '</div>' +
+
+  '<div id="loading" class="loading-overlay" style="display:none"><div class="spinner"></div><p>Memuat data...</p></div>' +
+
+  '<div id="contentArea"></div>' +
+
+  '<div class="export-section" id="exportSection" style="display:none">' +
+    '<h3>📤 Export & Kirim Laporan</h3>' +
+    '<div class="export-btns">' +
+      '<button class="btn-excel" onclick="downloadExcel()">📊 Download Excel</button>' +
+      '<button class="btn-print" onclick="printLaporan()">🖨️ Cetak / Print</button>' +
+      '<button class="btn-primary" onclick="shareLaporan()">📤 Kirim Laporan</button>' +
+    '</div>' +
+    '<p id="exportStatus" style="margin-top:8px;font-size:12px;color:#64748b"></p>' +
+  '</div>' +
+'</div>' +
+
+'<script>' +
+'var currentData = null;' +
+'var currentResult = null;' +
+'var bulanNames = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];' +
+
+'// Init filters' +
+'function initFilters() {' +
+'  var selBulan = document.getElementById("filterBulan");' +
+'  var selTahun = document.getElementById("filterTahun");' +
+'  var now = new Date();' +
+'  var curBulan = now.getMonth();' +
+'  var curTahun = now.getFullYear();' +
+'  bulanNames.forEach(function(n,i){var o=document.createElement("option");o.value=i;o.textContent=n;if(i===curBulan)o.selected=true;selBulan.appendChild(o);});' +
+'  for(var y=curTahun-2;y<=curTahun+1;y++){var o=document.createElement("option");o.value=y;o.textContent=y;if(y===curTahun)o.selected=true;selTahun.appendChild(o);}' +
+'  loadKelasList();' +
+'}' +
+
+'function loadKelasList() {' +
+'  google.script.run.withSuccessHandler(function(res){' +
+'    if(res.success){' +
+'      var sel=document.getElementById("filterKelas");' +
+'      res.data.forEach(function(k){var o=document.createElement("option");o.value=k;o.textContent=k;sel.appendChild(o);});' +
+'    }' +
+'  }).getKelasList();' +
+'}' +
+
+'function loadLaporan() {' +
+'  document.getElementById("loading").style.display="flex";' +
+'  document.getElementById("contentArea").innerHTML="";' +
+'  document.getElementById("exportSection").style.display="none";' +
+'  var bulan=parseInt(document.getElementById("filterBulan").value);' +
+'  var tahun=parseInt(document.getElementById("filterTahun").value);' +
+'  var kelas=document.getElementById("filterKelas").value;' +
+'  google.script.run.withSuccessHandler(function(res){' +
+'    document.getElementById("loading").style.display="none";' +
+'    if(!res.success){document.getElementById("contentArea").innerHTML=\'<div class="no-data">Gagal: \'+res.message+\'</div>\';return;}' +
+'    currentResult=res;' +
+'    currentData=res.data;' +
+'    renderLaporan(res.data, res.waktuList, res.periode, kelas);' +
+'    document.getElementById("exportSection").style.display="block";' +
+'  }).withFailureHandler(function(err){' +
+'    document.getElementById("loading").style.display="none";' +
+'    document.getElementById("contentArea").innerHTML=\'<div class="no-data">Error: \'+err.message+\'</div>\';' +
+'  }).getLaporanSholatDetailBulanan(bulan, tahun, kelas||null);' +
+'}' +
+
+'function renderLaporan(data, waktuList, periode, kelasFilter) {' +
+'  if(!data||data.length===0){document.getElementById("contentArea").innerHTML=\'<div class="no-data">Tidak ada data untuk periode ini.</div>\';return;}' +
+'  var html="";' +
+
+'  // Status bar ringkasan' +
+'  var totalH=0,totalI=0,totalT=0,totalR=0;' +
+'  data.forEach(function(d){totalH+=d.totalHadir;totalI+=d.totalIzin;totalT+=d.totalTidak;totalR+=d.persen;});' +
+'  var avgP=data.length?Math.round(totalR/data.length):0;' +
+'  html+=\'<div class="status-bar">\';' +
+'  html+=\'<div class="stat-card"><div class="stat-label">Total Hadir</div><div class="stat-value badge-h">\'+totalH+\'</div></div>\';' +
+'  html+=\'<div class="stat-card izin-card"><div class="stat-label">Total Izin</div><div class="stat-value badge-i">\'+totalI+\'</div></div>\';' +
+'  html+=\'<div class="stat-card tidak-card"><div class="stat-label">Total Tidak Hadir</div><div class="stat-value badge-t">\'+totalT+\'</div></div>\';' +
+'  html+=\'<div class="stat-card persen-card"><div class="stat-label">Rata-rata Kehadiran</div><div class="stat-value">\'+avgP+\'%</div></div>\';' +
+'  html+=\'</div>\';' +
+
+'  // Group by kelas' +
+'  var kelasGroups={};' +
+'  data.forEach(function(d){if(!kelasGroups[d.kelas])kelasGroups[d.kelas]=[];kelasGroups[d.kelas].push(d);});' +
+
+'  Object.keys(kelasGroups).sort().forEach(function(kelasName){' +
+'    var siswa=kelasGroups[kelasName];' +
+'    var totalKelasH=0,totalKelasI=0,totalKelasT=0;' +
+'    siswa.forEach(function(s){totalKelasH+=s.totalHadir;totalKelasI+=s.totalIzin;totalKelasT+=s.totalTidak;});' +
+'    var totalKelas=totalKelasH+totalKelasI+totalKelasT;' +
+'    var persenKelas=totalKelas>0?Math.round(totalKelasH/totalKelas*100):0;' +
+
+'    html+=\'<div class="card">\';' +
+'    html+=\'<div class="kelas-header"><span>🏫 Kelas: \'+kelasName+\' (</span>\';' +
+'    html+=\'<span>Hadir: \'+totalKelasH+\' | Izin: \'+totalKelasI+\' | Tidak Hadir: \'+totalKelasT+\' | \'+persenKelas+\'% | </span>\';' +
+'    html+=\'<span>\'+siswa.length+\' siswa)</span></div>\';' +
+
+'    // Tabel ringkas per siswa' +
+'    html+=\'<div class="table-wrap"><table><thead><tr>\';' +
+'    html+=\'<th>No</th><th style="text-align:left">Nama Siswa</th><th>NISN</th>\';' +
+'    waktuList.forEach(function(w){html+=\'<th>\'+w.substring(0,4)+\'</th>\';});' +
+'    html+=\'<th>Total H</th><th>Total Izin</th><th>Total Tdk</th><th>%</th>\';' +
+'    html+=\'</tr></thead><tbody>\';' +
+
+'    siswa.forEach(function(s,idx){' +
+'      html+=\'<tr>\';' +
+'      html+=\'<td>\'+(idx+1)+\'</td>\';' +
+'      html+=\'<td class="nama-cell">\'+s.nama+\'</td>\';' +
+'      html+=\'<td>\'+s.nisn+\'</td>\';' +
+'      waktuList.forEach(function(w){' +
+'        var pw=s.perWaktu[w]||{hadir:0,izin:0,tidak:0};' +
+'        html+=\'<td><span class="badge-h">\'+pw.hadir+\'</span>/<span class="badge-i">\'+pw.izin+\'</span>/<span class="badge-t">\'+pw.tidak+\'</span></td>\';' +
+'      });' +
+'      html+=\'<td class="badge-h">\'+s.totalHadir+\'</td>\';' +
+'      html+=\'<td class="badge-i">\'+s.totalIzin+\'</td>\';' +
+'      html+=\'<td class="badge-t">\'+s.totalTidak+\'</td>\';' +
+'      html+=\'<td class="percent">\'+s.persen+\'%</td>\';' +
+'      html+=\'</tr>\';' +
+'    });' +
+
+'    html+=\'</tbody></table></div>\';' +
+
+'    // Detail siswa yang tidak hadir/izin (expandable)' +
+'    var hasDetail=siswa.some(function(s){return s.detailTidakHadir.length>0||s.detailIzin.length>0;});' +
+'    if(hasDetail){' +
+'      html+=\'<button onclick="toggleDetail(\\\'\'+kelasName+\'\\\')" style="margin-top:8px;background:none;border:1px solid #e2e8f0;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;color:#475569">▼ Lihat Detail Ketidakhadiran & Izin</button>\';' +
+'      html+=\'<div id="detail-\'+kelasName.replace(/\\s/g,\'_\')+\'" style="display:none;margin-top:8px">\';' +
+'      siswa.forEach(function(s){' +
+'        if(s.detailTidakHadir.length>0){' +
+'          html+=\'<div class="detail-section">\' ;' +
+'          html+=\'<div class="detail-title">🔴 \'+s.nama+\' - Tidak Hadir (\'+s.detailTidakHadir.length+\'x)</div>\';' +
+'          html+=\'<div class="detail-list">\';' +
+'          s.detailTidakHadir.forEach(function(d){html+=\'<span>\'+d.tanggal+\' - \'+d.waktu+(d.keterangan?\' (\"+d.keterangan+\")\':"")+\'</span> \';});' +
+'          html+=\'</div></div>\';' +
+'        }' +
+'        if(s.detailIzin.length>0){' +
+'          html+=\'<div class="detail-section izin">\' ;' +
+'          html+=\'<div class="detail-title">🔵 \'+s.nama+\' - Izin (\'+s.detailIzin.length+\'x)</div>\';' +
+'          html+=\'<div class="detail-list izin-list">\';' +
+'          s.detailIzin.forEach(function(d){html+=\'<span>\'+d.tanggal+\' - \'+d.waktu+(d.keterangan?\' (\"+d.keterangan+\")\':"")+\'</span> \';});' +
+'          html+=\'</div></div>\';' +
+'        }' +
+'      });' +
+'      html+=\'</div>\';' +
+'    }' +
+
+'    html+=\'</div>\';' +
+'  });' +
+
+'  document.getElementById("contentArea").innerHTML=html;' +
+'}' +
+
+'function toggleDetail(kelas) {' +
+'  var el=document.getElementById("detail-"+kelas.replace(/\\s/g,"_"));' +
+'  if(el){el.style.display=el.style.display==="none"?"block":"none";}' +
+'}' +
+
+'function downloadExcel() {' +
+'  if(!currentResult)return;' +
+'  document.getElementById("exportStatus").textContent="Memproses Excel...";' +
+'  var bulan=parseInt(document.getElementById("filterBulan").value);' +
+'  var tahun=parseInt(document.getElementById("filterTahun").value);' +
+'  var kelas=document.getElementById("filterKelas").value||null;' +
+'  google.script.run.withSuccessHandler(function(res){' +
+'    if(res.success){' +
+'      document.getElementById("exportStatus").innerHTML=\'✅ <a href="\'+res.downloadUrl+\'" target="_blank" style="color:#16a34a;font-weight:700">Klik untuk download Excel</a>\';' +
+'    }else{' +
+'      document.getElementById("exportStatus").textContent="Gagal: "+res.message;' +
+'    }' +
+'  }).generateExcelLaporanSholatDetail(bulan,tahun,kelas);' +
+'}' +
+
+'function printLaporan() {' +
+'  if(!currentResult)return;' +
+'  document.getElementById("exportStatus").textContent="Menyiapkan halaman print...";' +
+'  var bulan=parseInt(document.getElementById("filterBulan").value);' +
+'  var tahun=parseInt(document.getElementById("filterTahun").value);' +
+'  var kelas=document.getElementById("filterKelas").value||null;' +
+'  google.script.run.withSuccessHandler(function(res){' +
+'    if(res.success){' +
+'      var w=window.open("","_blank","width=900,height=700");' +
+'      w.document.write(res.html);' +
+'      w.document.close();' +
+'      document.getElementById("exportStatus").textContent="✅ Halaman print terbuka di tab baru. Gunakan Ctrl+P untuk mencetak.";' +
+'    }else{' +
+'      document.getElementById("exportStatus").textContent="Gagal: "+res.message;' +
+'    }' +
+'  }).getLaporanSholatPrintHTML(bulan,tahun,kelas);' +
+'}' +
+
+'function shareLaporan() {' +
+'  if(!currentResult)return;' +
+'  document.getElementById("exportStatus").textContent="Membuat link laporan...";' +
+'  var bulan=parseInt(document.getElementById("filterBulan").value);' +
+'  var tahun=parseInt(document.getElementById("filterTahun").value);' +
+'  var kelas=document.getElementById("filterKelas").value||null;' +
+'  google.script.run.withSuccessHandler(function(res){' +
+'    if(res.success){' +
+'      document.getElementById("exportStatus").innerHTML=\'✅ Link laporan: <a href="\'+res.url+\'" target="_blank" style="color:#2563eb;font-weight:700">Buka</a> | <a href="\'+res.downloadUrl+\'" style="color:#2563eb">Download XLSX</a>\';' +
+'      // Copy link to clipboard' +
+'      var ta=document.createElement("textarea");ta.value=res.url;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);' +
+'      document.getElementById("exportStatus").innerHTML+=\' (Link disalin ke clipboard)\';' +
+'    }else{' +
+'      document.getElementById("exportStatus").textContent="Gagal: "+res.message;' +
+'    }' +
+'  }).generateExcelLaporanSholatDetail(bulan,tahun,kelas);' +
+'}' +
+
+'function goBack() {' +
+'  // Coba kembali ke halaman utama (sesuaikan URL deployment)' +
+'  var url=window.location.href;' +
+'  // Hapus parameter path jika ada' +
+'  var base=url.replace(/\\?.*$/,"").replace(/\\/$/,"");' +
+'  window.location.href=base;' +
+'}' +
+
+'// Auto-init' +
+'initFilters();' +
+'</script>' +
+'</body></html>';
+}
+
+
+// Admin mengembalikan tampilan ke bawaan aplikasi.
+// target: 'logo' | 'background' | 'appbg' | 'semua'
+function resetTampilanAplikasi(token, target) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    verifyUser(token, 'admin');
+
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('konfigurasi');
+    if (sheet) {
+      if (target === 'logo' || target === 'semua') _hapusKonfigurasiValue(sheet, 'logo_url');
+      if (target === 'background' || target === 'semua') _hapusKonfigurasiValue(sheet, 'background_url');
+      if (target === 'appbg' || target === 'semua') _hapusKonfigurasiValue(sheet, 'app_background_url');
+    }
+
+    return { status: 'success', message: 'Tampilan berhasil dikembalikan ke bawaan.' };
+  } catch (e) {
+    return { status: 'error', message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}

@@ -1,0 +1,236 @@
+// ============================================================================
+// IMPORT CSV CANVA — Elemen Kuis Canva & Canva Forms  →  Rekap Nilai
+// Taruh sebagai file baru "CanvaImport" (CanvaImport.gs) di project Apps Script,
+// satu project dengan Code.gs, Nilai.gs, dan Tautan.gs.
+//
+// Cara kerja:
+//   - Guru/admin mengunggah satu atau beberapa file CSV hasil unduhan Canva.
+//   - Kolom dikenali OTOMATIS dari judul: NISN, Nama, Kelas, Timestamp, Score/Skor/Nilai.
+//   - Kolom lain dianggap kolom soal. Guru mengisi jawaban benar per soal,
+//     lalu skor dihitung di sini (atau memakai kolom skor bila CSV punya).
+//   - Hasil disimpan ke sheet 'hasil_kuis' (sama seperti kuis online dan tautan),
+//     jadi otomatis tampil di Rekap Nilai, Nilai Saya, dan Export Excel.
+//   - Import ulang dengan judul + kelas + jenis yang sama MENIMPA nilai lama,
+//     tidak dobel.
+//
+// Memakai fungsi dari file lain: nl_session_, nl_kelasBoleh_, nl_kelasGuru_,
+// nl_round_, nl_nisn_, tautan_auto_, tautan_waktu_, tautan_parseScore_,
+// tautan_simpan_, tautan_ringkas_, JENIS_NILAI, TAUTAN_HDR, TL.
+// ============================================================================
+
+const CANVA_MAX_BARIS = 5000;
+const CANVA_MAX_FILE = 60;
+
+function canva_norm_(x) {
+  return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+// Tebak pemisah kolom (koma / titik koma / tab) dari baris judul
+function canva_delim_(text) {
+  const first = text.split(/\r?\n/)[0] || '';
+  const c = { ',': 0, ';': 0, '\t': 0 };
+  let inQ = false;
+  for (let i = 0; i < first.length; i++) {
+    const ch = first.charAt(i);
+    if (ch === '"') inQ = !inQ;
+    else if (!inQ && c[ch] !== undefined) c[ch]++;
+  }
+  const best = Object.keys(c).sort((a, b) => c[b] - c[a])[0];
+  return c[best] > 0 ? best : ',';
+}
+
+// Baca semua file CSV → struktur siap pakai
+function canva_baca_(files) {
+  if (!files || !files.length) throw new Error('Pilih minimal satu file CSV.');
+  if (files.length > CANVA_MAX_FILE) throw new Error('Maksimal ' + CANVA_MAX_FILE + ' file sekali impor.');
+
+  return files.map((f, fi) => {
+    const nama = String(f.nama || ('file' + (fi + 1)));
+    const text = String(f.text || '').replace(/^\uFEFF/, '');
+    let v;
+    try { v = Utilities.parseCsv(text, canva_delim_(text)); }
+    catch (e) { throw new Error('File "' + nama + '" tidak bisa dibaca sebagai CSV.'); }
+    v = v.filter(r => r.some(c => String(c).trim() !== ''));
+    if (v.length < 2) throw new Error('File "' + nama + '" kosong atau hanya berisi judul kolom.');
+    if (v.length - 1 > CANVA_MAX_BARIS) throw new Error('File "' + nama + '" terlalu besar (maks ' + CANVA_MAX_BARIS + ' baris).');
+
+    const H = v[0].map(h => String(h).trim());
+    const idx = {
+      nisn:  tautan_auto_(H, ['nisn']),
+      nama:  tautan_auto_(H, ['nama lengkap', 'nama siswa', 'nama peserta', 'nama', 'name'], { tanpaMengandung: true }),
+      kelas: tautan_auto_(H, ['kelas', 'class'], { tanpaMengandung: true }),
+      waktu: tautan_auto_(H, ['timestamp', 'submitted', 'waktu', 'tanggal', 'date', 'time', 'created'], { tanpaMengandung: true }),
+      skor:  tautan_auto_(H, ['score', 'skor', 'nilai', 'points', 'poin'], { tanpaMengandung: true })
+    };
+    const dipakai = {};
+    Object.keys(idx).forEach(k => { if (idx[k] >= 0) dipakai[idx[k]] = true; });
+
+    const rows = v.slice(1);
+    const q = [];
+    H.forEach((h, i) => {
+      if (dipakai[i]) return;
+      const ada = rows.some(r => String(r[i] == null ? '' : r[i]).trim() !== '');
+      if (!ada) return;
+      q.push({ id: 'f' + fi + 'c' + i, label: h || ('Kolom ' + (i + 1)), i: i });
+    });
+    return { nama: nama, H: H, rows: rows, idx: idx, q: q };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// LANGKAH 1: analisis file → daftar soal, contoh jawaban, peringatan
+// ---------------------------------------------------------------------------
+function canvaImportAnalisis(token, files) {
+  try {
+    nl_session_(token, ['guru', 'admin']);
+    const F = canva_baca_(files);
+    const out = [], kolom = [], peringatan = [];
+    let adaSkor = false;
+
+    F.forEach(f => {
+      const ket = k => (f.idx[k] >= 0 ? f.H[f.idx[k]] : '');
+      if (f.idx.nisn < 0 && f.idx.nama < 0) {
+        peringatan.push('File "' + f.nama + '": tidak ada kolom NISN atau Nama, jadi barisnya tidak bisa dicocokkan ke siswa. Tambahkan pertanyaan NISN/Nama di Canva.');
+      }
+      if (f.idx.skor >= 0) adaSkor = true;
+      out.push({
+        nama: f.nama, baris: f.rows.length, jumlahSoal: f.q.length,
+        kolomNisn: ket('nisn'), kolomNama: ket('nama'), kolomKelas: ket('kelas'),
+        kolomWaktu: ket('waktu'), kolomSkor: ket('skor')
+      });
+      f.q.forEach(q => {
+        const hit = {};
+        f.rows.forEach(r => {
+          const x = String(r[q.i] == null ? '' : r[q.i]).trim();
+          if (x) hit[x] = (hit[x] || 0) + 1;
+        });
+        const contoh = Object.keys(hit).sort((a, b) => hit[b] - hit[a]).slice(0, 6)
+          .map(k => ({ t: k.substring(0, 80), n: hit[k] }));
+        kolom.push({ id: q.id, label: q.label.substring(0, 140), file: f.nama, contoh: contoh });
+      });
+    });
+    return { success: true, files: out, kolom: kolom, adaSkor: adaSkor, peringatan: peringatan };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// Jawaban cocok dengan salah satu kunci? Boleh teks pilihan penuh, atau huruf (A/B/C/D).
+function canva_cocok_(jawab, daftarKunci) {
+  const a = canva_norm_(jawab);
+  if (!a) return false;
+  return daftarKunci.some(k => {
+    const b = canva_norm_(k);
+    if (!b) return false;
+    if (a === b) return true;
+    if (/^[a-z]$/.test(b) && new RegExp('^' + b + '[\\.\\)\\s:]').test(a)) return true;
+    return false;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// LANGKAH 2: hitung nilai & simpan ke hasil_kuis
+// d = { files:[{nama,text}], judul, kelas, jenis, maks, pakaiSkor, kunci:{idKolom:'jawaban|alternatif'} }
+// ---------------------------------------------------------------------------
+function canvaImportSimpan(token, d) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const s = nl_session_(token, ['guru', 'admin']);
+
+    const judul = String(d.judul || '').trim();
+    const kelas = String(d.kelas || '').trim();
+    const jenis = String(d.jenis || '').trim();
+    const maks = Number(d.maks) || 100;
+    if (!judul) throw new Error('Judul wajib diisi.');
+    if (!kelas) throw new Error('Pilih kelas.');
+    if (JENIS_NILAI.indexOf(jenis) === -1) throw new Error('Jenis nilai tidak valid.');
+    if (maks <= 0) throw new Error('Nilai maksimal harus lebih dari 0.');
+    if (kelas.toUpperCase() === 'SEMUA') {
+      if (s.role === 'guru' && nl_kelasGuru_(s)) throw new Error('Pilih salah satu kelas Anda, bukan "Semua Kelas".');
+    } else if (!nl_kelasBoleh_(s, kelas)) {
+      throw new Error('Anda tidak punya akses ke kelas ' + kelas + '.');
+    }
+
+    const F = canva_baca_(d.files);
+    const pakaiSkor = !!d.pakaiSkor;
+    const kunci = {};
+    Object.keys(d.kunci || {}).forEach(id => {
+      const arr = String(d.kunci[id] || '').split('|').map(x => x.trim()).filter(Boolean);
+      if (arr.length) kunci[id] = arr;
+    });
+    const qIds = Object.keys(kunci);
+    if (!pakaiSkor && !qIds.length) {
+      throw new Error('Isi jawaban benar untuk minimal satu soal, atau centang "Pakai kolom skor dari CSV".');
+    }
+
+    // Kumpulkan jawaban per siswa dari semua file (baris terbaru menimpa yang lama)
+    const sis = {};
+    F.forEach((f, fi) => {
+      let rows = f.rows.map((r, ri) => ({ r: r, ri: ri }));
+      if (f.idx.waktu >= 0) {
+        rows.sort((a, b) =>
+          String(tautan_waktu_(a.r[f.idx.waktu])).localeCompare(String(tautan_waktu_(b.r[f.idx.waktu]))) || a.ri - b.ri);
+      }
+      rows.forEach(o => {
+        const r = o.r;
+        const cell = i => (i >= 0 && r[i] != null ? String(r[i]).trim() : '');
+        const nisn = nl_nisn_(cell(f.idx.nisn));
+        const nama = cell(f.idx.nama);
+        const kelasRow = cell(f.idx.kelas);
+        if (!nisn && !nama) return;
+        const key = nisn || ('N:' + nama.toLowerCase().replace(/[^a-z0-9]/g, '') + '|' + kelasRow.toLowerCase().replace(/[^a-z0-9]/g, ''));
+        const rec = sis[key] = sis[key] || { nisn: nisn, nama: nama, kelas: kelasRow, waktu: '', skor: {}, jawab: {} };
+        if (nisn && !rec.nisn) rec.nisn = nisn;
+        if (nama && !rec.nama) rec.nama = nama;
+        if (kelasRow && !rec.kelas) rec.kelas = kelasRow;
+        if (f.idx.waktu >= 0) {
+          const w = String(tautan_waktu_(r[f.idx.waktu]));
+          if (w > rec.waktu) rec.waktu = w;
+        }
+        if (f.idx.skor >= 0) rec.skor[fi] = r[f.idx.skor];
+        f.q.forEach(q => { rec.jawab[q.id] = cell(q.i); });
+      });
+    });
+
+    const items = [];
+    Object.keys(sis).forEach(k => {
+      const rec = sis[k];
+      let score = null, benar = 0, salah = 0, total = 0;
+      if (pakaiSkor) {
+        const vals = Object.keys(rec.skor).map(fi => tautan_parseScore_(rec.skor[fi], maks)).filter(x => x !== null);
+        if (vals.length) score = nl_round_(vals.reduce((a, b) => a + b, 0) / vals.length);
+      } else {
+        total = qIds.length;
+        qIds.forEach(id => { if (canva_cocok_(rec.jawab[id], kunci[id])) benar++; });
+        salah = total - benar;
+        score = nl_round_(benar / total * 100);
+      }
+      items.push({ nisn: rec.nisn, nama: rec.nama, kelas: rec.kelas, waktu: rec.waktu,
+                   score: score, benar: benar, salah: salah, total: total });
+    });
+    if (!items.length) throw new Error('Tidak ada baris dengan NISN/Nama yang bisa dibaca.');
+
+    // ID stabil: judul+kelas+jenis sama → import ulang menimpa nilai lama
+    const raw = [judul.toLowerCase(), kelas.toLowerCase(), jenis].join('|');
+    const hex = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, raw)
+      .map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('').substring(0, 8).toUpperCase();
+    const link = new Array(TAUTAN_HDR.length).fill('');
+    link[TL.ID] = 'C' + hex;
+    link[TL.JUDUL] = judul;
+    link[TL.KELAS] = kelas;
+    link[TL.JENIS] = jenis;
+    link[TL.MAKS] = maks;
+
+    const r = tautan_simpan_(link, items);
+    return {
+      success: true,
+      message: 'Siswa terbaca di CSV: ' + items.length + '. ' + tautan_ringkas_(r),
+      baru: r.baru, diperbarui: r.diperbarui, tidakCocok: r.tidakCocok.slice(0, 15)
+    };
+  } catch (e) {
+    return { success: false, message: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}

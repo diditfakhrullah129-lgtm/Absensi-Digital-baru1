@@ -1,0 +1,900 @@
+// ============================================================================
+// TAUTAN NILAI EKSTERNAL — tarik / terima nilai dari web atau aplikasi lain
+// Taruh sebagai file "Tautan.gs" (satu project dengan Code.gs & Nilai.gs).
+//
+// Cara kerja: nilai dari luar disimpan ke sheet 'hasil_kuis' (sheet yang sama
+// dengan kuis online), jadi otomatis tampil di Rekap Nilai, Nilai Saya, dan
+// Export Excel tanpa mengubah kode lama.
+//
+// 3 jenis tautan:
+//   Sheet   : baca Google Sheet (mis. hasil Google Form Quiz) via link
+//   CSV     : baca file CSV dari URL (mis. "Publish to web" Sheet / export web lain)
+//   Webhook : web lain MENGIRIM nilai ke aplikasi ini (real-time) memakai kunci rahasia
+//
+// PERUBAHAN VERSI INI:
+//  1. Satu tautan bisa membaca DUA kolom nilai dari satu sheet:
+//       - "Kolom nilai utama"   -> masuk ke jenis yang dipilih (mis. Pemahaman & Pengetahuan)
+//       - "Kolom nilai Analisa" -> otomatis masuk ke Nilai Analisa
+//  2. Tautan yang sudah dibuat bisa DIUBAH (tombol pensil), tanpa membuat ulang.
+//  3. Pencarian nama kolom fleksibel: "NISN" cocok dengan "NISN Sesuai dengan NISN
+//     Aplikasi Absensi", "Nama" cocok dengan "Nama lengkap". Huruf kolom (A, B, C) tetap bisa.
+// ============================================================================
+
+const TAUTAN_HDR = ['ID', 'Judul', 'Kelas', 'Jenis', 'Tipe', 'URL Sumber Data', 'Link Pengerjaan Siswa',
+  'Kolom NISN', 'Kolom Nama', 'Kolom Score', 'Nilai Maks', 'Rahasia', 'Status',
+  'Dibuat Oleh', 'Tanggal Dibuat', 'Terakhir Sinkron', 'Hasil Terakhir', 'Kolom Analisa', 'Link Google Form'];
+// indeks kolom
+const TL = { ID: 0, JUDUL: 1, KELAS: 2, JENIS: 3, TIPE: 4, URL: 5, LINKSISWA: 6, KNISN: 7, KNAMA: 8, KSCORE: 9,
+  MAKS: 10, RAHASIA: 11, STATUS: 12, OLEH: 13, TGL: 14, SINKRON: 15, HASIL: 16, KANALISA: 17, LINKFORM: 18 };
+
+function tautan_sheet_() {
+  const ss = getSpreadsheet();
+  let sh = ss.getSheetByName('tautan_nilai');
+  if (!sh) {
+    sh = ss.insertSheet('tautan_nilai');
+    sh.appendRow(TAUTAN_HDR);
+    sh.getRange(1, 1, 1, TAUTAN_HDR.length).setFontWeight('bold').setBackground('#1B5E20').setFontColor('#FFFFFF');
+    sh.setFrozenRows(1);
+  } else {
+    // sheet versi lama: tambahkan header kolom baru di ujung kanan
+    const lc = sh.getLastColumn();
+    if (lc < TAUTAN_HDR.length) {
+      sh.getRange(1, lc + 1, 1, TAUTAN_HDR.length - lc).setValues([TAUTAN_HDR.slice(lc)])
+        .setFontWeight('bold').setBackground('#1B5E20').setFontColor('#FFFFFF');
+    }
+  }
+  return sh;
+}
+
+function tautan_urlOk_(u) { return /^https?:\/\/\S+$/i.test(String(u || '').trim()); }
+
+// ---------------------------------------------------------------------------
+// PARSE Score → angka 0–100
+// Mendukung: 85 | "85" | "8,5" | "17 / 20" (Google Form) | dengan nilai maks
+// ---------------------------------------------------------------------------
+function tautan_parseScore_(v, maks) {
+  if (v === null || v === undefined || v === '') return null;
+  let val;
+  if (typeof v === 'number') {
+    val = v;
+  } else {
+    const s = String(v).trim();
+    const m = s.match(/^([\d.,]+)\s*\/\s*([\d.,]+)$/);
+    if (m) {
+      const a = parseFloat(m[1].replace(',', '.')), b = parseFloat(m[2].replace(',', '.'));
+      if (isNaN(a) || isNaN(b) || b <= 0) return null;
+      return Math.max(0, Math.min(100, nl_round_(a / b * 100)));
+    }
+    val = parseFloat(s.replace('%', '').replace(',', '.'));
+  }
+  if (isNaN(val)) return null;
+  const mx = Number(maks) || 100;
+  if (mx !== 100) val = val / mx * 100;
+  return Math.max(0, Math.min(100, nl_round_(val)));
+}
+
+function tautan_waktu_(v) {
+  if (!v) return '';
+  if (v instanceof Date) return formatWaktuSheet(v, 'yyyy-MM-dd HH:mm:ss');
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? String(v) : formatWaktuSheet(d, 'yyyy-MM-dd HH:mm:ss');
+}
+
+// ---------------------------------------------------------------------------
+// BACA SUMBER DATA (Sheet / CSV) → { header:[], rows:[[]] }
+// ---------------------------------------------------------------------------
+function tautan_ambilData_(link) {
+  const url = String(link[TL.URL]).trim();
+  let values, display = null, formUrl = '';
+  if (link[TL.TIPE] === 'Sheet') {
+    const idm = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (!idm) throw new Error('Link Google Sheet tidak valid.');
+    let ss;
+    try { ss = SpreadsheetApp.openById(idm[1]); }
+    catch (e) { throw new Error('Sheet tidak bisa dibuka. Bagikan sheet ke akun pemilik aplikasi ini (minimal Viewer).'); }
+    try { formUrl = ss.getFormUrl() || ''; } catch (e) {}
+    const gm = url.match(/[#&?]gid=(\d+)/);
+    let sh = ss.getSheets()[0];
+    if (gm) { ss.getSheets().forEach(x => { if (String(x.getSheetId()) === gm[1]) sh = x; }); }
+    const rng = sh.getDataRange();
+    values = rng.getValues();
+    display = rng.getDisplayValues();
+  } else if (link[TL.TIPE] === 'CSV') {
+    const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    if (resp.getResponseCode() !== 200) throw new Error('Gagal mengambil CSV (kode ' + resp.getResponseCode() + ').');
+    values = Utilities.parseCsv(resp.getContentText());
+  } else {
+    throw new Error('Tautan tipe Webhook tidak ditarik; nilai dikirim oleh web lain.');
+  }
+  if (!values || values.length < 2) throw new Error('Sumber data kosong atau hanya berisi header.');
+  return { header: values[0].map(h => String(h).trim()), rows: values.slice(1), disp: (display || values).slice(1), formUrl: formUrl };
+}
+
+// Cari indeks kolom. Urutan pencarian:
+//   1. nama header persis sama (tidak peka huruf besar/kecil)
+//   2. huruf kolom (A, B, C ...)
+//   3. header yang DIAWALI teks itu, lalu header yang MENGANDUNG teks itu
+//      (contoh: "NISN" cocok dengan "NISN Sesuai dengan NISN Aplikasi Absensi")
+function tautan_kolom_(header, spec) {
+  const sp = String(spec || '').trim();
+  if (!sp) return -1;
+  const low = sp.toLowerCase();
+  // Skor / Score / Nilai dianggap sama
+  const GRUP = ['skor', 'score', 'nilai'];
+  const grup = GRUP.indexOf(low) !== -1;
+  const cands = grup ? GRUP : [low];
+  const hdr = header.map(h => String(h).trim().toLowerCase());
+
+  // 1. persis
+  for (let i = 0; i < hdr.length; i++) {
+    if (cands.indexOf(hdr[i]) !== -1) return i;
+  }
+  // 2. huruf kolom
+  if (/^[A-Za-z]{1,2}$/.test(sp)) {
+    let n = 0;
+    sp.toUpperCase().split('').forEach(c => { n = n * 26 + (c.charCodeAt(0) - 64); });
+    if (n - 1 < header.length) return n - 1;
+  }
+  // 3. sebagian (tidak dipakai untuk Score/Nilai agar tidak salah kolom)
+  if (!grup) {
+    for (let i = 0; i < hdr.length; i++) { if (hdr[i].indexOf(low) === 0) return i; }
+    for (let i = 0; i < hdr.length; i++) { if (hdr[i].indexOf(low) !== -1) return i; }
+  }
+  return -1;
+}
+
+
+// Deteksi kolom OTOMATIS dari judul kolom (tidak peka huruf besar/kecil, tidak harus persis).
+// Urutan: persis -> diawali kata kunci -> mengandung kata kunci.
+// Judul kolom yang sangat panjang (teks soal) diabaikan agar tidak salah kolom.
+function tautan_auto_(header, kataList, opsi) {
+  const hdr = header.map(h => String(h).trim().toLowerCase());
+  const pendek = i => hdr[i].length <= 60;
+  for (let a = 0; a < kataList.length; a++) {
+    for (let i = 0; i < hdr.length; i++) { if (hdr[i] === kataList[a]) return i; }
+  }
+  for (let a = 0; a < kataList.length; a++) {
+    for (let i = 0; i < hdr.length; i++) { if (pendek(i) && hdr[i].indexOf(kataList[a]) === 0) return i; }
+  }
+  if (!(opsi && opsi.tanpaMengandung)) {
+    for (let a = 0; a < kataList.length; a++) {
+      for (let i = 0; i < hdr.length; i++) { if (pendek(i) && hdr[i].indexOf(kataList[a]) !== -1) return i; }
+    }
+  }
+  return -1;
+}
+
+// Angka mentah dari sel: 40 | "40" | "40 / 200" (ambil 40) | "8,5"
+function tautan_angka_(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return isNaN(v) ? null : v;
+  const s = String(v).trim();
+  const m = s.match(/^([\d.,]+)\s*\/\s*[\d.,]+$/);
+  const x = parseFloat((m ? m[1] : s).replace('%', '').replace(',', '.'));
+  return isNaN(x) ? null : x;
+}
+
+// Angka mentah -> skala 0-100 memakai "Nilai maksimal di sumber"
+function tautan_skala_(v, maks) {
+  const a = tautan_angka_(v);
+  if (a === null) return null;
+  const mx = Number(maks) || 100;
+  return Math.max(0, Math.min(100, nl_round_(a / mx * 100)));
+}
+
+// Dari tampilan sel "100 / 200" ambil 200
+function tautan_maksDariTampilan_(t) {
+  const m = String(t == null ? '' : t).match(/\/\s*([\d.,]+)/);
+  return m ? (parseFloat(m[1].replace(',', '.')) || 0) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// SIMPAN HASIL → hasil_kuis (upsert per link + NISN: pengiriman terbaru menimpa)
+// items: [{ nisn, nama, Score, benar, salah, total }]
+// ---------------------------------------------------------------------------
+
+function tautan_pecahan_(v) {
+  const m = String(v == null ? '' : v).trim().match(/^([\d.,]+)\s*\/\s*([\d.,]+)$/);
+  if (!m) return null;
+  const a = parseFloat(m[1].replace(',', '.')), b = parseFloat(m[2].replace(',', '.'));
+  if (isNaN(a) || isNaN(b) || b <= 0) return null;
+  return { benar: Math.round(a), total: Math.round(b) };
+}
+
+function tautan_simpan_(link, items) {
+  const siswaMap = nl_loadSiswa_();
+  const kelasList = String(link[TL.KELAS]).split(',').map(nl_norm_).filter(Boolean);
+  const semua = kelasList.indexOf('SEMUA') !== -1;
+  const bolehKelas = k => semua || kelasList.indexOf(nl_norm_(k)) !== -1;
+  const nk = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// peta nama (longgar) -> daftar siswa
+  const namaMap = {};
+  Object.keys(siswaMap).forEach(n => {
+    const st = siswaMap[n];
+    if (!bolehKelas(st.kelas)) return;
+    (namaMap[nk(st.nama)] = namaMap[nk(st.nama)] || []).push(st);
+  });
+
+  const sh = nl_sheet_('hasil_kuis');
+  const data = sh.getDataRange().getValues();
+  const idKuis = 'X' + link[TL.ID];
+  const baris = {};
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][1] === idKuis) baris[nl_nisn_(data[i][4])] = i + 1;
+  }
+
+  const waktu = formatWaktuSheet(new Date(), 'yyyy-MM-dd HH:mm:ss');
+  const baru = [], tidakCocok = [];
+  let diperbarui = 0, dilewati = 0;
+
+  items.forEach(it => {
+    if (it.score === null || it.score === undefined || isNaN(it.score )) { dilewati++; return; }
+    let st = null;
+    const n = nl_nisn_(it.nisn);
+    if (n && siswaMap[n]) st = siswaMap[n];
+    else if (it.nama) {
+      let cand = namaMap[nk(it.nama)] || [];
+      if (cand.length > 1 && it.kelas) cand = cand.filter(s => nk(s.kelas) === nk(it.kelas));
+      if (cand.length === 1) st = cand[0];
+    }
+    if (!st || !bolehKelas(st.kelas)) { tidakCocok.push(n || it.nama || '(kosong)'); return; }
+
+    const benar = Number(it.benar) || 0, salah = Number(it.salah) || 0, total = Number(it.total) || (benar + salah);
+    const rowVals = [it.waktu || waktu, idKuis, link[TL.JUDUL], link[TL.JENIS], "'" + st.nisn, st.nama, st.kelas,
+  it.score, benar, salah, total, JSON.stringify({ sumber: 'eksternal', refleksi: it.refleksi || '' })];
+    if (baris[st.nisn]) {
+      sh.getRange(baris[st.nisn], 1, 1, rowVals.length).setValues([rowVals]);
+      diperbarui++;
+    } else {
+      baru.push(rowVals);
+      baris[st.nisn] = -1;
+    }
+  });
+
+  if (baru.length) sh.getRange(sh.getLastRow() + 1, 1, baru.length, baru[0].length).setValues(baru);
+  return { baru: baru.length, diperbarui: diperbarui, dilewati: dilewati, tidakCocok: tidakCocok };
+}
+
+function tautan_ringkas_(r) {
+  let m = r.baru + ' nilai baru, ' + r.diperbarui + ' diperbarui';
+  if (r.dilewati) m += ', ' + r.dilewati + ' baris tanpa score dilewati';
+  if (r.tidakCocok.length) m += ', ' + r.tidakCocok.length + ' tidak cocok dengan data siswa (' + r.tidakCocok.slice(0, 5).join(', ') + (r.tidakCocok.length > 5 ? ', ...' : '') + ')';
+  return m + '.';
+}
+
+// Sinkron satu tautan (Sheet/CSV). rowNum = nomor baris link di sheet tautan_nilai
+//
+// Kolom dikenali OTOMATIS dari judul kolom:
+//   NISN, Nama, Kelas, Timestamp, Score, "...Pemahaman/Pengetahuan...", "...Analisa..."
+// - Bila sheet punya kolom Pemahaman dan/atau Analisa  -> tersimpan 3 nilai terpisah:
+//       Score (mengikuti sheet), Pemahaman & Pengetahuan, Analisa
+// - Bila tidak ada -> dipakai satu kolom nilai (kolom manual atau Score) ke jenis pilihan.
+// Isian kolom manual di pengaturan tautan hanya dipakai bila diisi, dan kalau tidak
+// ketemu sistem otomatis mencari sendiri.
+function tautan_sinkronBaris_(sh, rowNum, link, penuh) {
+  let pesan, ok = true;
+  try {
+    const d = tautan_ambilData_(link);
+    const H = d.header;
+    const pilih = (spec, kata, opsi) => {
+      const i = spec ? tautan_kolom_(H, spec) : -1;
+      return i >= 0 ? i : tautan_auto_(H, kata, opsi);
+    };
+    const iN = pilih(String(link[TL.KNISN] || '').trim(), ['nisn']);
+    const iM = pilih(String(link[TL.KNAMA] || '').trim(), ['nama']);
+    const iK = tautan_auto_(H, ['kelas']);
+    const iT = tautan_auto_(H, ['timestamp', 'tanggal mengerjakan']);
+    const iR = tautan_auto_(H, ['refleksi']);
+    const iSc = tautan_auto_(H, ['score', 'skor'], { tanpaMengandung: true });
+    const iPem = tautan_auto_(H, ['pemahaman', 'pengetahuan']);
+    const iAn = pilih(String(link[TL.KANALISA] || '').trim(), ['analisa', 'analisis']);
+    const specUtama = String(link[TL.KSCORE] || '').trim();
+    const iUtama = specUtama ? tautan_kolom_(H, specUtama) : -1;
+
+    if (iN < 0 && iM < 0) throw new Error('Kolom NISN / Nama tidak ditemukan. Kolom yang ada: ' + H.join(' | '));
+
+    const multi = iPem >= 0 || iAn >= 0;
+    let pemCol = -1, pemJenis = 'Harian', scCol = -1, tunggal = -1;
+    if (multi) {
+      pemCol = iPem;
+      if (pemCol < 0 && iUtama >= 0 && iUtama !== iSc) { pemCol = iUtama; pemJenis = link[TL.JENIS]; }
+      scCol = iSc;
+    } else {
+      tunggal = iUtama >= 0 ? iUtama : iSc;
+      if (tunggal < 0) throw new Error('Kolom nilai tidak ditemukan (Score / Nilai Pemahaman / Nilai Analisa). Kolom yang ada: ' + H.join(' | '));
+    }
+
+    const items = [];
+    d.rows.forEach((r, ri) => {
+      if (r.every(c => c === '' || c === null)) return;
+      const ds = d.disp[ri] || [];
+      const cell = i => (i >= 0 ? r[i] : '');
+      items.push({
+        nisn: cell(iN), nama: cell(iM), kelas: cell(iK),
+        waktu: tautan_waktu_(iT >= 0 ? r[iT] : ''),
+        refleksi: iR >= 0 ? String(r[iR] == null ? '' : r[iR]).trim() : '',
+        raw: { pem: cell(pemCol), an: cell(iAn), sc: cell(scCol), tg: cell(tunggal) },
+        maksSc: scCol >= 0 ? tautan_maksDariTampilan_(ds[scCol]) : 0,
+        pcTg: tunggal >= 0 ? tautan_pecahan_(r[tunggal]) : null
+      });
+    });
+
+    // satu baris terbaru per siswa
+    const last = {};
+    items.forEach(it => { last[nl_nisn_(it.nisn) || ('N:' + String(it.nama).toLowerCase().replace(/[^a-z0-9]/g, '') + '|' + String(it.kelas).toLowerCase().replace(/[^a-z0-9]/g, ''))] = it; });
+    const unik = Object.keys(last).map(k => last[k]);
+
+    const maks = link[TL.MAKS];
+    const turunan = (prefix, jenis, suffix) => {
+      const l = link.slice();
+      l[TL.ID] = prefix + link[TL.ID];
+      l[TL.JENIS] = jenis;
+      l[TL.JUDUL] = link[TL.JUDUL] + suffix;
+      return l;
+    };
+    const bagian = [];
+    if (multi) {
+      if (pemCol >= 0) {
+        bagian.push(['Pemahaman', tautan_simpan_(turunan('', pemJenis, ''),
+          unik.map(it => Object.assign({}, it, { score: tautan_skala_(it.raw.pem, maks), benar: 0, salah: 0, total: 0 })))]);
+      }
+      if (iAn >= 0) {
+        bagian.push(['Analisa', tautan_simpan_(turunan('A', 'Analisa', ' (Analisa)'),
+          unik.map(it => Object.assign({}, it, { score: tautan_skala_(it.raw.an, maks), benar: 0, salah: 0, total: 0, refleksi: '' })))]);
+      }
+      if (scCol >= 0) {
+        bagian.push(['Score', tautan_simpan_(turunan('S', 'Score', ' (Score)'),
+          unik.map(it => Object.assign({}, it, { score: tautan_angka_(it.raw.sc), benar: 0, salah: 0, total: it.maksSc, refleksi: '' })))]);
+      }
+    } else {
+      bagian.push(['Nilai', tautan_simpan_(link,
+        unik.map(it => Object.assign({}, it, {
+          score: tautan_parseScore_(it.raw.tg, maks),
+          benar: it.pcTg ? it.pcTg.benar : 0,
+          salah: it.pcTg ? it.pcTg.total - it.pcTg.benar : 0,
+          total: it.pcTg ? it.pcTg.total : 0
+        })))]);
+    }
+    pesan = bagian.map(b => b[0] + ': ' + tautan_ringkas_(b[1])).join(' | ');
+
+    // rincian benar/salah per soal (dari Google Form yang terhubung)
+    if (link[TL.TIPE] === 'Sheet') {
+      const det = tautan_detailSoal_(link, d.formUrl, !!penuh, d.rows.length);
+      if (det) pesan += ' | ' + det;
+    }
+  } catch (e) {
+    ok = false; pesan = 'Gagal: ' + e.message;
+  }
+  sh.getRange(rowNum, TL.SINKRON + 1).setValue(formatWaktuSheet(new Date(), 'yyyy-MM-dd HH:mm:ss'));
+  sh.getRange(rowNum, TL.HASIL + 1).setValue(pesan);
+  return { ok: ok, message: pesan };
+}
+
+// Sinkron SEMUA tautan Sheet/CSV milik pengguna (guru: miliknya, admin: semua) dengan satu klik
+function tautanSinkronSemua(token) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const s = nl_session_(token, ['guru', 'admin']);
+    const sh = tautan_sheet_();
+    const data = sh.getDataRange().getValues();
+    let n = 0, gagal = 0, masalah = 0;
+    const err = [], rinci = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][TL.ID] || data[i][TL.STATUS] !== 'Aktif' || data[i][TL.TIPE] === 'Webhook') continue;
+      if (s.role === 'guru' && nl_nisn_(data[i][TL.OLEH]) !== s.identifier) continue;
+      const r = tautan_sinkronBaris_(sh, i + 1, sh.getRange(i + 1, 1, 1, TAUTAN_HDR.length).getValues()[0], true);
+      n++;
+      if (!r.ok) { gagal++; err.push(data[i][TL.JUDUL] + ': ' + String(r.message).substring(0, 250)); continue; }
+      const rs = String(r.message).split(' | ').filter(x => x.indexOf('Rincian soal') === 0)[0] || '';
+      if (rs) {
+        rinci.push(data[i][TL.JUDUL] + ' → ' + rs);
+        if (/gagal|tidak ditemukan|tidak punya/i.test(rs)) masalah++;
+      }
+    }
+    if (!n) return { success: true, message: 'Belum ada tautan Sheet/CSV yang aktif.' };
+    if (gagal) return { success: false, message: (n - gagal) + ' berhasil, ' + gagal + ' gagal. ' + err.join(' | ') };
+    return { success: masalah === 0, message: n + ' tautan disinkron. ' + rinci.join(' | ') };
+  } catch (e) {
+    return { success: false, message: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function pasangPemicuForm() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'sinkronOtomatis' && t.getEventType() === ScriptApp.EventType.ON_FORM_SUBMIT) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sinkronOtomatis').forSpreadsheet(SPREADSHEET_ID).onFormSubmit().create();
+  Logger.log('Pemicu sinkron saat form disubmit terpasang.');
+}
+
+// ---------------------------------------------------------------------------
+// API UNTUK GURU / ADMIN
+// ---------------------------------------------------------------------------
+function tautan_cari_(s, id) {
+  const sh = tautan_sheet_();
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][TL.ID] === id) {
+      if (s.role === 'guru' && nl_nisn_(data[i][TL.OLEH]) !== s.identifier) throw new Error('Tautan ini bukan milik Anda.');
+      return { sh: sh, row: i + 1, data: data[i] };
+    }
+  }
+  throw new Error('Tautan tidak ditemukan.');
+}
+
+// Validasi isian form (dipakai untuk Buat dan Ubah). tipeTetap = tipe yang tidak boleh berubah saat Ubah.
+function tautan_validasi_(s, d, tipeTetap) {
+  const f = {
+    judul: String(d.judul || '').trim(),
+    kelas: String(d.kelas || '').trim(),
+    jenis: String(d.jenis || '').trim(),
+    tipe: tipeTetap || String(d.tipe || '').trim(),
+    maks: Number(d.maks) || 100,
+    linkSiswa: String(d.linkSiswa || '').trim(),
+    url: '', kN: '', kM: '', kS: '', kA: '', linkForm: String(d.linkForm || '').trim()
+  };
+
+  if (!f.judul) throw new Error('Judul wajib diisi.');
+  if (!f.kelas) throw new Error('Pilih kelas.');
+  if (JENIS_NILAI.indexOf(f.jenis) === -1) throw new Error('Jenis nilai tidak valid.');
+  if (['Sheet', 'CSV', 'Webhook'].indexOf(f.tipe) === -1) throw new Error('Tipe tautan tidak valid.');
+  if (f.kelas.toUpperCase() === 'SEMUA') {
+    if (s.role === 'guru' && nl_kelasGuru_(s)) throw new Error('Pilih salah satu kelas Anda, bukan "Semua Kelas".');
+  } else if (!nl_kelasBoleh_(s, f.kelas)) throw new Error('Anda tidak punya akses ke kelas ' + f.kelas + '.');
+
+  if (f.linkSiswa && !tautan_urlOk_(f.linkSiswa)) throw new Error('Link pengerjaan siswa harus diawali http:// atau https://');
+  if (f.linkForm && !tautan_urlOk_(f.linkForm)) throw new Error('Link Google Form harus diawali http:// atau https://');
+  if (f.maks <= 0) throw new Error('Nilai maks harus lebih dari 0.');
+
+  if (f.tipe !== 'Webhook') {
+    f.url = String(d.url || '').trim();
+    if (!tautan_urlOk_(f.url)) throw new Error('URL sumber data wajib diisi (http/https).');
+    f.kN = String(d.kNisn || '').trim(); f.kM = String(d.kNama || '').trim(); f.kS = String(d.kScore || '').trim();
+    f.kA = String(d.kAnalisa || '').trim();
+  }
+  return f;
+}
+
+function tautanBuat(token, d) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+    const s = nl_session_(token, ['guru', 'admin']);
+    const f = tautan_validasi_(s, d, '');
+
+    const id = 'T' + Utilities.getUuid().replace(/-/g, '').substring(0, 7).toUpperCase();
+    const rahasia = Utilities.getUuid().replace(/-/g, '').substring(0, 20);
+    const sh = tautan_sheet_();
+    sh.appendRow([id, f.judul, f.kelas, f.jenis, f.tipe, f.url, f.linkSiswa, f.kN, f.kM, f.kS, f.maks, rahasia, 'Aktif', s.identifier,
+      formatWaktuSheet(new Date(), 'yyyy-MM-dd HH:mm:ss'), '', f.tipe === 'Webhook' ? 'Menunggu kiriman dari web lain.' : 'Belum pernah disinkron.', f.kA, f.linkForm]);
+
+    let hasil = null;
+    if (f.tipe !== 'Webhook') {
+      const rowNum = sh.getLastRow();
+      hasil = tautan_sinkronBaris_(sh, rowNum, sh.getRange(rowNum, 1, 1, TAUTAN_HDR.length).getValues()[0], true);
+    }
+    return { success: true, id: id, message: 'Tautan dibuat.' + (hasil ? ' Sinkron pertama: ' + hasil.message : ''), sinkron: hasil };
+  } catch (e) {
+    return { success: false, message: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Ubah tautan yang sudah ada (ID tetap, jadi nilai lama ditimpa, bukan dobel).
+function tautanUbah(token, id, d) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+    const s = nl_session_(token, ['guru', 'admin']);
+    const t = tautan_cari_(s, id);
+    const f = tautan_validasi_(s, d, String(t.data[TL.TIPE]));
+
+    t.sh.getRange(t.row, TL.JUDUL + 1, 1, 10).setValues([[f.judul, f.kelas, f.jenis, f.tipe, f.url, f.linkSiswa, f.kN, f.kM, f.kS, f.maks]]);
+    t.sh.getRange(t.row, TL.KANALISA + 1).setValue(f.kA);
+    t.sh.getRange(t.row, TL.LINKFORM + 1).setValue(f.linkForm);
+
+    let hasil = null;
+    if (f.tipe !== 'Webhook') {
+      hasil = tautan_sinkronBaris_(t.sh, t.row, t.sh.getRange(t.row, 1, 1, TAUTAN_HDR.length).getValues()[0], true);
+    }
+    return { success: true, id: id, message: 'Tautan diperbarui.' + (hasil ? ' Sinkron: ' + hasil.message : ''), sinkron: hasil };
+  } catch (e) {
+    return { success: false, message: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function tautanList(token) {
+  try {
+    const s = nl_session_(token, ['guru', 'admin']);
+    const data = tautan_sheet_().getDataRange().getValues();
+    const list = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][TL.ID]) continue;
+      if (s.role === 'guru' && nl_nisn_(data[i][TL.OLEH]) !== s.identifier) continue;
+      list.push({
+        id: data[i][TL.ID], judul: data[i][TL.JUDUL], kelas: data[i][TL.KELAS], jenis: data[i][TL.JENIS],
+        tipe: data[i][TL.TIPE], url: data[i][TL.URL], linkSiswa: data[i][TL.LINKSISWA],
+        kNisn: data[i][TL.KNISN], kNama: data[i][TL.KNAMA], kScore: data[i][TL.KSCORE], maks: data[i][TL.MAKS],
+        kAnalisa: String(data[i][TL.KANALISA] || ''), linkForm: String(data[i][TL.LINKFORM] || ''),
+        rahasia: data[i][TL.RAHASIA], status: data[i][TL.STATUS],
+        sinkron: nl_fmt_(data[i][TL.SINKRON]), hasil: String(data[i][TL.HASIL] || '')
+      });
+    }
+    list.reverse();
+    let webhookUrl = '';
+    try { webhookUrl = ScriptApp.getService().getUrl(); } catch (e) {}
+    return { success: true, data: list, webhookUrl: webhookUrl };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+function tautanSinkron(token, id) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const s = nl_session_(token, ['guru', 'admin']);
+    const t = tautan_cari_(s, id);
+    if (t.data[TL.TIPE] === 'Webhook') throw new Error('Tautan Webhook tidak ditarik; nilai masuk otomatis saat web lain mengirim.');
+    const r = tautan_sinkronBaris_(t.sh, t.row, t.sh.getRange(t.row, 1, 1, TAUTAN_HDR.length).getValues()[0], true);
+    return { success: r.ok, message: r.message };
+  } catch (e) {
+    return { success: false, message: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function tautanSetStatus(token, id, status) {
+  try {
+    const s = nl_session_(token, ['guru', 'admin']);
+    if (['Aktif', 'Nonaktif'].indexOf(status) === -1) throw new Error('Status tidak valid.');
+    const t = tautan_cari_(s, id);
+    t.sh.getRange(t.row, TL.STATUS + 1).setValue(status);
+    return { success: true, message: 'Tautan ' + (status === 'Aktif' ? 'diaktifkan' : 'dinonaktifkan') + '.' };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// Hapus tautan. Nilai yang sudah masuk TETAP tersimpan di rekap.
+function tautanHapus(token, id) {
+  try {
+    const s = nl_session_(token, ['guru', 'admin']);
+    const t = tautan_cari_(s, id);
+    t.sh.deleteRow(t.row);
+    return { success: true, message: 'Tautan dihapus. Nilai yang sudah masuk tetap tersimpan di rekap.' };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// RINCIAN BENAR / SALAH PER SOAL (dari Google Form Quiz yang terhubung)
+// Disimpan di sheet 'detail_soal'. Satu baris = satu siswa untuk satu tautan.
+// Link Form diambil otomatis dari spreadsheet jawaban, atau dari isian "Link Google Form".
+// Syarat: form berjenis Quiz (soal punya poin) dan dapat dibuka oleh akun pemilik aplikasi.
+// ---------------------------------------------------------------------------
+const FRM_TIPE = {
+  MULTIPLE_CHOICE: 'asMultipleChoiceItem', CHECKBOX: 'asCheckboxItem', LIST: 'asListItem', TEXT: 'asTextItem',
+  PARAGRAPH_TEXT: 'asParagraphTextItem', SCALE: 'asScaleItem', GRID: 'asGridItem', CHECKBOX_GRID: 'asCheckboxGridItem',
+  DATE: 'asDateItem', DATETIME: 'asDateTimeItem', TIME: 'asTimeItem', DURATION: 'asDurationItem'
+};
+
+function frm_info_(item) {
+  try {
+    const nama = FRM_TIPE[String(item.getType())];
+    if (!nama) return null;
+    const it = item[nama]();
+    const poin = Number(it.getPoints()) || 0;
+    let kunciList = [];
+    if (poin > 0 && typeof it.getChoices === 'function') {
+      kunciList = it.getChoices().filter(c => c.isCorrectAnswer()).map(c => String(c.getValue()));
+    }
+    return { poin: poin, kunciList: kunciList };
+  } catch (e) { return null; }
+}
+
+function frm_teks_(v) {
+  if (v === null || v === undefined) return '';
+  if (Array.isArray(v)) return v.map(x => Array.isArray(x) ? x.join('/') : String(x)).join(', ');
+  return String(v);
+}
+
+function frm_norm_(x) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().toLowerCase(); }
+
+// cocokkan jawaban siswa dengan kunci (untuk pilihan ganda, daftar pilihan, dan kotak centang)
+function frm_sama_(jawab, kunciList) {
+  const K = kunciList.map(frm_norm_).sort();
+  if (!K.length) return false;
+  if (Array.isArray(jawab)) {
+    const J = jawab.map(frm_norm_).sort();
+    return J.length === K.length && J.every((v, i) => v === K[i]);
+  }
+  return K.indexOf(frm_norm_(jawab)) !== -1;
+}
+
+function tautan_detailSoal_(link, formUrlSheet, penuh, jumlahBaris) {
+  const url = String(link[TL.LINKFORM] || '').trim() || formUrlSheet;
+  if (!url) return 'Rincian soal: link Google Form tidak ditemukan (isi kolom "Link Google Form" di pengaturan tautan).';
+  const prop = PropertiesService.getScriptProperties();
+  const kN = 'dtn_' + link[TL.ID], kT = 'dts_' + link[TL.ID];
+  if (!penuh && prop.getProperty(kN) === String(jumlahBaris)) return '';   // belum ada jawaban baru
+
+  let form;
+  try { form = FormApp.openByUrl(url); }
+  catch (e) { return 'Rincian soal gagal: Form tidak bisa dibuka (' + String(e.message).substring(0, 120) + ').'; }
+
+  // peta soal berpoin: id -> nomor, judul, bagian, poin, kunci
+  const peta = {}, urut = [];
+  let n = 0, grup = '';
+  const angkaJudul = [];
+  form.getItems().forEach(item => {
+    const tipe = String(item.getType());
+    if (tipe === 'PAGE_BREAK' || tipe === 'SECTION_HEADER') { grup = String(item.getTitle()).replace(/\s+/g, ' ').trim().substring(0, 40); return; }
+    const inf = frm_info_(item);
+    if (!inf || inf.poin <= 0) return;
+    n++;
+    const jd = String(item.getTitle());
+    const mm = jd.match(/^\s*soal\s*(\d+)/i) || jd.match(/^\s*(\d+)\s*[\.\)\-–]/);
+    angkaJudul.push(mm ? parseInt(mm[1], 10) : n);
+    peta[item.getId()] = { no: n, judul: jd.replace(/\s+/g, ' ').trim().substring(0, 140), key: frm_norm_(jd), grup: grup,
+      maks: inf.poin, kunciList: inf.kunciList, kunci: inf.kunciList.join(', ').substring(0, 100) };
+    urut.push(item.getId());
+  });
+  if (!urut.length) return 'Rincian soal: form ini tidak punya soal berpoin (pastikan berjenis Quiz).';
+  // pakai nomor dari judul ("SOAL 3") bila tidak ada yang kembar; kalau kembar pakai urutan 1..N
+  const unik = angkaJudul.every((x, i) => angkaJudul.indexOf(x) === i);
+  if (unik) urut.forEach((id, i) => { peta[id].no = angkaJudul[i]; });
+
+  const terakhir = Number(prop.getProperty(kT) || 0);
+  let resps = (!penuh && terakhir) ? form.getResponses(new Date(terakhir)) : form.getResponses();
+  resps = resps.slice().sort((a, b) => a.getTimestamp().getTime() - b.getTimestamp().getTime());
+
+  const siswaMap = nl_loadSiswa_();
+  const nk = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const kelasList = String(link[TL.KELAS]).split(',').map(nl_norm_).filter(Boolean);
+  const semua = kelasList.indexOf('SEMUA') !== -1;
+  const bolehKelas = k => semua || kelasList.indexOf(nl_norm_(k)) !== -1;
+  const namaMap = {};
+  Object.keys(siswaMap).forEach(nn => {
+    const st = siswaMap[nn];
+    if (!bolehKelas(st.kelas)) return;
+    (namaMap[nk(st.nama)] = namaMap[nk(st.nama)] || []).push(st);
+  });
+
+  const sh = nl_sheet_('detail_soal');
+  const data = sh.getDataRange().getValues();
+  const baris = {};
+  for (let i = 1; i < data.length; i++) baris[data[i][1] + '|' + nl_nisn_(data[i][3])] = i + 1;
+
+  const baru = [];
+  let diperbarui = 0, tidakCocok = 0, maxTs = terakhir, diag = '';
+  resps.forEach(resp => {
+    const byId = {}, byTitle = {};
+    let nisn = '', nama = '';
+    resp.getItemResponses().forEach(ir => {
+      const item = ir.getItem(), id = item.getId();
+      byId[id] = ir;
+      const tk = frm_norm_(item.getTitle());
+      if (!byTitle[tk]) byTitle[tk] = ir;
+      if (peta[id]) return;
+      const jd = String(item.getTitle()).toLowerCase(), v = ir.getResponse();
+      if (typeof v !== 'string') return;
+      if (!nisn && jd.indexOf('nisn') !== -1) nisn = v.trim();
+      else if (!nama && jd.indexOf('nama') !== -1 && jd.length <= 60) nama = v.trim();
+    });
+
+    let st = null;
+    const nn = nl_nisn_(nisn);
+    if (nn && siswaMap[nn]) st = siswaMap[nn];
+    else if (nama) { const cand = namaMap[nk(nama)] || []; if (cand.length === 1) st = cand[0]; }
+    maxTs = Math.max(maxTs, resp.getTimestamp().getTime());
+    if (!st || !bolehKelas(st.kelas)) { tidakCocok++; return; }
+
+    // 1) kumpulkan jawaban + skor dari Form (A) + penilaian sendiri dari kunci (B)
+    const kumpul = urut.map(id => {
+      const m = peta[id];
+      const ir = byId[id] || byTitle[m.key] || null;
+      const jawab = ir ? ir.getResponse() : null;
+      let skA = null;
+      if (ir) { const v = ir.getScore(); skA = (typeof v === 'number') ? v : null; }
+      let skB = null;
+      if (!ir) skB = 0;
+      else if (m.kunciList.length) skB = frm_sama_(jawab, m.kunciList) ? m.maks : 0;
+      return { m: m, jawab: jawab, ada: !!ir, skA: skA, skB: skB };
+    });
+    const totA = kumpul.reduce((t, x) => t + (x.skA || 0), 0);
+    const totB = kumpul.reduce((t, x) => t + (x.skB || 0), 0);
+    // bila skor Form kosong/0 semua tetapi kunci menunjukkan ada yang benar, pakai penilaian dari kunci
+    const pakaiB = totA === 0 && totB > 0;
+    diag = 'cek ' + st.nama + ': skor Form ' + totA + ', skor kunci ' + totB + (pakaiB ? ' (dipakai kunci)' : '');
+
+    const detail = [], nb = [], ns = [];
+    let b = 0, sa = 0, sb = 0;
+    kumpul.forEach(x => {
+      const m = x.m;
+      let sk;
+      if (pakaiB) sk = (x.skB !== null) ? x.skB : (x.skA || 0);
+      else sk = (x.skA !== null) ? x.skA : (x.skB !== null ? x.skB : 0);
+      const t = m.maks > 0 ? (sk >= m.maks ? 'benar' : (sk > 0 ? 'sebagian' : 'salah')) : (sk > 0 ? 'benar' : 'salah');
+      if (t === 'benar') { b++; nb.push(m.no); } else if (t === 'sebagian') { sb++; } else { sa++; ns.push(m.no); }
+      detail.push({ n: m.no, s: m.judul, g: m.grup, j: x.ada ? frm_teks_(x.jawab).substring(0, 100) : '', k: m.kunci, p: sk, m: m.maks, t: t });
+    });
+    detail.sort((x, y) => x.n - y.n);
+    const num = (x, y) => x - y;
+    let json = JSON.stringify(detail);
+    if (json.length > 45000) json = JSON.stringify(detail.map(x => ({ n: x.n, j: x.j, p: x.p, m: x.m, t: x.t })));
+
+    const row = [formatWaktuSheet(resp.getTimestamp(), 'yyyy-MM-dd HH:mm:ss'), link[TL.ID], link[TL.JUDUL],
+      "'" + st.nisn, st.nama, st.kelas, b, sa, sb, urut.length, nb.sort(num).join(', '), ns.sort(num).join(', '), json];
+    const key = link[TL.ID] + '|' + st.nisn;
+    if (baris[key] > 0) { sh.getRange(baris[key], 1, 1, row.length).setValues([row]); diperbarui++; }
+    else { baru.push(row); baris[key] = -1; }
+  });
+  if (baru.length) sh.getRange(sh.getLastRow() + 1, 1, baru.length, baru[0].length).setValues(baru);
+
+  prop.setProperty(kN, String(jumlahBaris));
+  if (maxTs) prop.setProperty(kT, String(maxTs));
+  return 'Rincian soal: ' + (baru.length + diperbarui) + ' siswa, ' + urut.length + ' soal' +
+    (tidakCocok ? ', ' + tidakCocok + ' tidak cocok dengan data siswa' : '') +
+    (diag ? ' [' + diag + ']' : '') + '.';
+}
+
+// Analisis soal untuk guru: soal mana yang paling banyak salah + daftar siswa
+function tautanAnalisisSoal(token, id) {
+  try {
+    const s = nl_session_(token, ['guru', 'admin']);
+    const t = tautan_cari_(s, id);
+    const data = nl_sheet_('detail_soal').getDataRange().getValues();
+    const siswa = [], peta = {};
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][1] !== id) continue;
+      let det = [];
+      try { det = JSON.parse(data[i][12] || '[]'); } catch (e) {}
+      siswa.push({ nisn: nl_nisn_(data[i][3]), nama: data[i][4], kelas: data[i][5], benar: Number(data[i][6]) || 0,
+        salah: Number(data[i][7]) || 0, sebagian: Number(data[i][8]) || 0, total: Number(data[i][9]) || 0,
+        noSalah: String(data[i][11] || '') });
+      det.forEach(x => {
+        const m = peta[x.n] = peta[x.n] || { n: x.n, s: x.s || '', k: x.k || '', benar: 0, salah: 0, sebagian: 0 };
+        if (x.t === 'benar') m.benar++; else if (x.t === 'sebagian') m.sebagian++; else m.salah++;
+      });
+    }
+    const soal = Object.keys(peta).map(Number).sort((a, b) => a - b).map(n => peta[n]);
+    siswa.sort((a, b) => String(a.nama).localeCompare(String(b.nama)));
+    return { success: true, judul: t.data[TL.JUDUL], soal: soal, siswa: siswa };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// Jalankan SEKALI dari editor Apps Script (pilih fungsi ini lalu Run) untuk memberi izin
+// membaca Google Form. Setelah itu deploy versi baru.
+function otorisasiForm() {
+  Logger.log('Layanan Google Form siap: ' + (typeof FormApp));
+}
+
+// ---------------------------------------------------------------------------
+// SISWA: daftar tautan pengerjaan untuk kelasnya (tanpa rahasia / sumber data)
+// ---------------------------------------------------------------------------
+function tautanListSiswa(token) {
+  try {
+    const s = nl_session_(token, ['siswa']);
+    const st = nl_loadSiswa_()[s.identifier];
+    if (!st) throw new Error('Data siswa tidak ditemukan.');
+
+    const hk = nl_sheet_('hasil_kuis').getDataRange().getValues();
+    const sudah = {};
+    for (let i = 1; i < hk.length; i++) {
+      if (nl_nisn_(hk[i][4]) === s.identifier) sudah[hk[i][1]] = Number(hk[i][7]);
+    }
+
+    const data = tautan_sheet_().getDataRange().getValues();
+    const list = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][TL.ID] || data[i][TL.STATUS] !== 'Aktif' || !data[i][TL.LINKSISWA]) continue;
+      const kl = String(data[i][TL.KELAS]).trim();
+      const cocok = kl.toUpperCase() === 'SEMUA' || kl.split(',').map(nl_norm_).indexOf(nl_norm_(st.kelas)) !== -1;
+      if (!cocok) continue;
+      const sk = sudah['X' + data[i][TL.ID]];
+      list.push({ id: data[i][TL.ID], judul: data[i][TL.JUDUL], jenis: data[i][TL.JENIS],
+        link: data[i][TL.LINKSISWA], score: sk === undefined ? null : sk });
+    }
+    list.reverse();
+    return { success: true, data: list };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WEBHOOK — web lain mengirim nilai ke URL aplikasi ini (HTTP POST)
+// Body JSON atau form:
+//   { "key":"<rahasia>", "nisn":"123", "score":85 }                     (satu siswa)
+//   { "key":"<rahasia>", "score_maks":20, "data":[{"nisn":"1","score":17}, ...] }  (banyak)
+// Opsional per siswa: "nama" (bila tanpa NISN), "benar", "salah", "total".
+// ---------------------------------------------------------------------------
+function tautan_doPostWebhook_(e) {
+  let out;
+  try {
+    let body = {};
+    if (e && e.postData && e.postData.contents) {
+      try { body = JSON.parse(e.postData.contents); } catch (x) { body = (e && e.parameter) || {}; }
+    } else if (e && e.parameter) {
+      body = e.parameter;
+    }
+    out = tautan_terimaWebhook_(body);
+  } catch (err) {
+    out = { success: false, message: err.message };
+  }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function tautan_terimaWebhook_(b) {
+  const key = String(b.key || '').trim();
+  if (!key) throw new Error('Parameter "key" wajib diisi.');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = tautan_sheet_();
+    const all = sh.getDataRange().getValues();
+    let rowNum = -1, link = null;
+    for (let i = 1; i < all.length; i++) {
+      if (String(all[i][TL.RAHASIA]) === key) { rowNum = i + 1; link = all[i]; break; }
+    }
+    if (!link) throw new Error('Kunci tidak valid.');
+    if (link[TL.STATUS] !== 'Aktif') throw new Error('Tautan sedang dinonaktifkan.');
+
+    const maksDef = Number(b.score_maks) || Number(link[TL.MAKS]) || 100;
+    let arr = Array.isArray(b.data) ? b.data : [b];
+    const items = arr.map(x => {
+      const benar = Number(x.benar) || 0, salah = Number(x.salah) || 0, total = Number(x.total) || 0;
+      let score = tautan_parseScore_(x.score !== undefined ? x.score : x.nilai, Number(x.score_maks) || maksDef);
+      if (score === null && total > 0) score = nl_round_(benar / total * 100);
+      return { nisn: x.nisn, nama: x.nama, score: score, benar: benar, salah: salah,refleksi: x.refleksi, total: total };
+    });
+    if (!items.length) throw new Error('Tidak ada data nilai.');
+
+    const r = tautan_simpan_(link, items);
+    const pesan = tautan_ringkas_(r);
+    sh.getRange(rowNum, TL.SINKRON + 1).setValue(formatWaktuSheet(new Date(), 'yyyy-MM-dd HH:mm:ss'));
+    sh.getRange(rowNum, TL.HASIL + 1).setValue('Webhook: ' + pesan);
+    return { success: r.tidakCocok.length < items.length, message: pesan, diterima: r.baru + r.diperbarui, tidakCocok: r.tidakCocok };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SINKRON OTOMATIS TERJADWAL
+// Jalankan pasangPemicuSinkron() SEKALI dari editor Apps Script.
+// ---------------------------------------------------------------------------
+function sinkronOtomatis() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(25000)) return;
+  try {
+    const sh = tautan_sheet_();
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][TL.ID] || data[i][TL.STATUS] !== 'Aktif' || data[i][TL.TIPE] === 'Webhook') continue;
+      tautan_sinkronBaris_(sh, i + 1, sh.getRange(i + 1, 1, 1, TAUTAN_HDR.length).getValues()[0]);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function pasangPemicuSinkron() {
+  ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === 'sinkronOtomatis') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('sinkronOtomatis').timeBased().everyMinutes(15).create();
+  Logger.log('Pemicu sinkron otomatis (tiap 15 menit) terpasang.');
+}

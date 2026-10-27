@@ -1,0 +1,434 @@
+<!-- ======================================================================
+     TAUTAN NILAI EKSTERNAL — File HTML terpisah bernama "tautan"
+     Di-include dari index.html SETELAH nilai:
+         <?!= include('nilai') ?>
+         <?!= include('tautan') ?>
+     Menu "Tautan Nilai" (admin/guru) dan "Kuis Eksternal" (siswa) ditambahkan
+     otomatis oleh file ini, tanpa mengubah fungsi lama di index.html.
+
+     PERUBAHAN VERSI INI: pilihan "Masuk ke kolom nilai" memakai nama baru
+     (Nilai Pemahaman & Pengetahuan / Nilai Analisa). Fungsi lain tidak berubah.
+     ====================================================================== -->
+<script>
+let tlData = [];
+let tlWebhookUrl = '';
+
+// ---------------------------------------------------------------------------
+// VIEW
+// ---------------------------------------------------------------------------
+function tlInjectViews() {
+  const host = document.getElementById('mainContentArea');
+  if (!host || document.getElementById('view-tautan-guru')) return;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+  <div id="view-tautan-guru" class="view-section animate-fade-in">
+    <div class="page-card p-4 mb-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div>
+        <h3 class="font-bold text-gray-800 text-lg">Tautan Nilai Eksternal</h3>
+        <p class="text-xs text-gray-500 mt-0.5">Hubungkan kuis/ujian di web lain. Hasil siswa disinkron otomatis ke Rekap Nilai (cocok lewat NISN).</p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="tlLoad()" class="btn-secondary px-3 py-2.5 rounded-lg text-xs" title="Muat ulang"><i class="fas fa-sync-alt"></i></button>
+        <button onclick="tlSinkronSemua()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-xs font-bold"><i class="fas fa-rotate mr-1"></i> Sinkron Semua</button>
+        <button onclick="tlBukaForm()" class="btn-primary px-4 py-2.5 rounded-lg text-xs"><i class="fas fa-plus mr-1"></i> Tambah Tautan</button>
+      </div>
+    </div>
+    <div class="page-card overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border-collapse">
+          <thead><tr>
+            <th class="nl-th" style="text-align:left">Judul</th>
+            <th class="nl-th">Kelas</th>
+            <th class="nl-th">Masuk ke nilai</th>
+            <th class="nl-th">Cara sinkron</th>
+            <th class="nl-th" style="text-align:left">Sinkron terakhir</th>
+            <th class="nl-th">Status</th>
+            <th class="nl-th">Aksi</th>
+          </tr></thead>
+          <tbody id="tlBody"><tr><td colspan="7" class="p-10 text-center text-gray-400">Memuat...</td></tr></tbody>
+        </table>
+      </div>
+      <div class="p-3 bg-gray-50 border-t border-gray-100 text-[11px] text-gray-500 leading-relaxed">
+        Sheet/CSV disinkron otomatis tiap 15 menit (setelah pemicu dipasang) dan bisa disinkron manual. Webhook masuk seketika saat web lain mengirim nilai.
+        Pengiriman ulang untuk siswa yang sama <b>menimpa</b> nilai lamanya, jadi tidak dobel.
+      </div>
+    </div>
+  </div>
+
+  <div id="view-tautan-siswa" class="view-section animate-fade-in">
+    <div class="page-card p-4 mb-4 flex items-center justify-between gap-3">
+      <div>
+        <h3 class="font-bold text-gray-800 text-lg">Kuis Eksternal</h3>
+        <p class="text-xs text-gray-500 mt-0.5">Kerjakan di web yang tertera. Gunakan <b>NISN</b> yang sama saat mengisi. Nilai masuk otomatis ke &ldquo;Nilai Saya&rdquo;.</p>
+      </div>
+      <button onclick="tlLoadSiswa()" class="btn-secondary px-3 py-2.5 rounded-lg text-xs" title="Muat ulang"><i class="fas fa-sync-alt"></i></button>
+    </div>
+    <div id="tlSiswaList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+  </div>`;
+  while (wrap.firstChild) host.appendChild(wrap.firstChild);
+}
+tlInjectViews();
+
+// ---------------------------------------------------------------------------
+// MENU: dipasang dengan membungkus initDashboard() lama
+// ---------------------------------------------------------------------------
+(function () {
+  const asli = initDashboard;
+  initDashboard = function () {
+    asli.apply(this, arguments);
+    const menu = document.getElementById('sidebarMenu');
+    if (!menu || !currentUser) return;
+    const mk = (label, icon, fn) => {
+      const a = document.createElement('a');
+      a.setAttribute('data-name', label);
+      a.setAttribute('onclick', fn);
+      a.className = 'flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 group overflow-hidden whitespace-nowrap cursor-pointer text-gray-400 hover:bg-gray-800 hover:text-white';
+      a.innerHTML = `<i class="fas ${icon} w-6 text-center flex-shrink-0 group-hover:scale-110 transition-transform"></i><span class="sidebar-label font-medium transition-opacity duration-300">${label}</span>`;
+      menu.appendChild(a);
+    };
+    if (currentUser.role === 'admin' || currentUser.role === 'guru') mk('Tautan Nilai', 'fa-link', 'loadTautanGuru()');
+    if (currentUser.role === 'siswa' && !menu.querySelector('[data-name="Nilai Saya"]')) mk('Nilai Saya', 'fa-star', 'loadNilaiSaya()');
+    if (currentUser.role === 'siswa') mk('Kuis Eksternal', 'fa-arrow-up-right-from-square', 'loadTautanSiswa()');
+  };
+})();
+
+// ---------------------------------------------------------------------------
+// GURU / ADMIN
+// ---------------------------------------------------------------------------
+function loadTautanGuru() {
+  nlOpen('view-tautan-guru', 'Tautan Nilai', 'Tautan Nilai Eksternal');
+  tlLoad();
+}
+
+function tlLoad() {
+  const body = document.getElementById('tlBody');
+  body.innerHTML = '<tr><td colspan="7" class="p-10 text-center text-gray-400"><i class="fas fa-circle-notch fa-spin mr-2"></i>Memuat...</td></tr>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { body.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-red-500">${nlEsc(res.message)}</td></tr>`; return; }
+      tlData = res.data; tlWebhookUrl = res.webhookUrl || '';
+      if (!tlData.length) { body.innerHTML = '<tr><td colspan="7" class="p-10 text-center text-gray-400">Belum ada tautan. Klik Tambah Tautan.</td></tr>'; return; }
+      body.innerHTML = tlData.map((k, i) => {
+        const aktif = k.status === 'Aktif';
+        const hook = k.tipe === 'Webhook';
+        const gagal = /^Gagal/.test(k.hasil);
+        return `
+        <tr class="hover:bg-gray-50">
+          <td class="nl-td" style="text-align:left"><div class="font-bold text-gray-800">${nlEsc(k.judul)}</div>
+            ${k.linkSiswa ? `<a href="${nlEsc(k.linkSiswa)}" target="_blank" rel="noopener" class="text-[10px] text-emerald-700 hover:underline">buka web kuis <i class="fas fa-arrow-up-right-from-square"></i></a>` : ''}</td>
+          <td class="nl-td"><span class="bg-gray-100 px-2 py-0.5 rounded text-[10px] font-bold">${nlEsc(k.kelas)}</span></td>
+          <td class="nl-td"><span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold">${nlEsc(nlJ(k.jenis))}</span>${k.kAnalisa ? '<br><span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold inline-block mt-1">Analisa</span>' : ''}</td>
+          <td class="nl-td"><span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">${nlEsc(k.tipe)}</span></td>
+          <td class="nl-td" style="text-align:left;max-width:260px">
+            <div class="text-[10px] text-gray-400">${k.sinkron ? nlFmtWaktu(k.sinkron) : '-'}</div>
+            <div class="text-[11px] ${gagal ? 'text-red-600' : 'text-gray-600'}">${nlEsc(k.hasil)}</div></td>
+          <td class="nl-td"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${aktif ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}">${aktif ? 'Aktif' : 'Nonaktif'}</span></td>
+          <td class="nl-td whitespace-nowrap">
+            ${hook
+              ? `<button onclick="tlInfoWebhook(${i})" class="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100" title="Cara kirim (URL & kunci)"><i class="fas fa-key"></i></button>`
+              : `<button onclick="tlSinkron('${k.id}')" class="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100" title="Sinkron sekarang"><i class="fas fa-rotate"></i></button>`}
+            ${hook ? '' : `<button onclick="tlAnalisis('${k.id}')" class="p-2 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100" title="Analisis soal (benar/salah per nomor)"><i class="fas fa-chart-simple"></i></button>`}
+            <button onclick="tlBukaForm(${i})" class="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200" title="Ubah tautan"><i class="fas fa-pen"></i></button>
+            <button onclick="tlToggle('${k.id}','${aktif ? 'Nonaktif' : 'Aktif'}')" class="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100" title="${aktif ? 'Nonaktifkan' : 'Aktifkan'}"><i class="fas ${aktif ? 'fa-pause' : 'fa-play'}"></i></button>
+            <button onclick="tlHapus('${k.id}')" class="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100" title="Hapus"><i class="fas fa-trash"></i></button>
+          </td>
+        </tr>`;
+      }).join('');
+    })
+    .withFailureHandler(err => { body.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-red-500">Gagal: ${nlEsc(err.message || err)}</td></tr>`; })
+    .tautanList(nlToken());
+}
+
+// ---------------------------------------------------------------------------
+// ANALISIS SOAL (benar / salah per nomor, semua siswa)
+// ---------------------------------------------------------------------------
+function tlAnalisis(id) {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (!res.success) { Swal.fire('Gagal', res.message, 'error'); return; }
+      if (!res.siswa.length) {
+        Swal.fire('Belum ada rincian soal', 'Klik Sinkron Semua dulu. Jika masih kosong, lihat kolom "Sinkron terakhir": pastikan link Google Form terbaca dan Form berjenis Quiz.', 'info');
+        return;
+      }
+      const soalRows = res.soal.map(x => {
+        const tot = x.benar + x.salah + x.sebagian;
+        const pct = tot ? Math.round(x.benar / tot * 100) : 0;
+        const w = pct >= 80 ? 'text-emerald-700 bg-emerald-50' : pct >= 50 ? 'text-amber-700 bg-amber-50' : 'text-red-700 bg-red-50';
+        return `<tr><td class="nl-td font-bold">${x.n}</td>
+          <td class="nl-td" style="text-align:left">${nlEsc(x.s)}${x.k ? '<div class="text-[10px] text-emerald-700">Kunci: ' + nlEsc(x.k) + '</div>' : ''}</td>
+          <td class="nl-td text-emerald-700 font-bold">${x.benar}</td>
+          <td class="nl-td text-red-600 font-bold">${x.salah + x.sebagian}</td>
+          <td class="nl-td"><span class="px-2 py-0.5 rounded-lg font-bold ${w}">${pct}%</span></td></tr>`;
+      }).join('');
+      const siswaRows = res.siswa.map((x, i) => `
+        <tr><td class="nl-td text-gray-400">${i + 1}</td>
+        <td class="nl-td" style="text-align:left">${nlEsc(x.nama)}</td>
+        <td class="nl-td text-emerald-700 font-bold">${x.benar}</td>
+        <td class="nl-td text-red-600 font-bold">${x.salah}</td>
+        <td class="nl-td" style="text-align:left">${nlEsc(x.noSalah || '-')}</td></tr>`).join('');
+      showModal(`
+      <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+          <div><h3 class="font-bold text-gray-800">Analisis Soal: ${nlEsc(res.judul)}</h3><p class="text-xs text-gray-500">${res.siswa.length} siswa &bull; ${res.soal.length} soal</p></div>
+          <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="p-5 max-h-[72vh] overflow-y-auto">
+          <h4 class="font-bold text-sm text-gray-700 mb-2">Per nomor soal</h4>
+          <div class="overflow-x-auto"><table class="w-full text-xs border-collapse">
+            <thead><tr><th class="nl-th w-10">No</th><th class="nl-th" style="text-align:left">Soal</th><th class="nl-th">Benar</th><th class="nl-th">Salah</th><th class="nl-th">% Benar</th></tr></thead>
+            <tbody>${soalRows}</tbody></table></div>
+          <h4 class="font-bold text-sm text-gray-700 mt-5 mb-2">Per siswa</h4>
+          <div class="overflow-x-auto"><table class="w-full text-xs border-collapse">
+            <thead><tr><th class="nl-th w-10">No</th><th class="nl-th" style="text-align:left">Nama</th><th class="nl-th">Benar</th><th class="nl-th">Salah</th><th class="nl-th" style="text-align:left">Nomor salah</th></tr></thead>
+            <tbody>${siswaRows}</tbody></table></div>
+        </div>
+      </div>`);
+    })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .tautanAnalisisSoal(nlToken(), id);
+}
+
+function tlSinkronSemua() {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      Swal.fire({ icon: res.success ? 'success' : 'warning', title: res.success ? 'Sinkron selesai' : 'Sinkron belum sempurna', text: res.message });
+      tlLoad();
+    })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .tautanSinkronSemua(nlToken());
+}
+
+function tlSinkron(id) {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      Swal.fire({ icon: res.success ? 'success' : 'error', title: res.success ? 'Sinkron selesai' : 'Sinkron gagal', text: res.message });
+      tlLoad();
+    })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .tautanSinkron(nlToken(), id);
+}
+
+function tlToggle(id, status) {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => { hideLoading(); if (res.success) { showAlert('success', res.message); tlLoad(); } else Swal.fire('Gagal', res.message, 'error'); })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .tautanSetStatus(nlToken(), id, status);
+}
+
+function tlHapus(id) {
+  Swal.fire({ title: 'Hapus tautan ini?', text: 'Nilai yang sudah masuk tetap tersimpan di rekap.', icon: 'warning',
+    showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Ya, hapus', cancelButtonText: 'Batal'
+  }).then(r => {
+    if (!r.isConfirmed) return;
+    showLoading();
+    google.script.run
+      .withSuccessHandler(res => { hideLoading(); if (res.success) { showAlert('success', res.message); tlLoad(); } else Swal.fire('Gagal', res.message, 'error'); })
+      .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+      .tautanHapus(nlToken(), id);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// FORM TAMBAH
+// ---------------------------------------------------------------------------
+let tlEditId = null;
+
+function tlBukaForm(i) {
+  const e = (i === undefined || i === null) ? null : tlData[i];
+  tlEditId = e ? e.id : null;
+  const kelasOpts = nlKelasOptions();
+  const semua = currentUser.role === 'admin';
+  const inp = 'w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5';
+  const lbl = 'block text-[10px] font-bold text-gray-500 uppercase mb-1';
+  const val = x => e ? nlEsc(x == null ? '' : x) : '';
+  showModal(`
+  <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+    <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+      <div><h3 class="font-bold text-gray-800">${e ? 'Ubah Tautan Nilai' : 'Tambah Tautan Nilai'}</h3><p class="text-xs text-gray-500">${e ? 'Setelah disimpan, nilai langsung disinkron ulang.' : 'Hubungkan hasil kuis dari web/aplikasi lain.'}</p></div>
+      <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="p-5 max-h-[72vh] overflow-y-auto">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="sm:col-span-2"><label class="${lbl}">Judul</label><input id="tlJudul" value="${val(e && e.judul)}" class="${inp}" placeholder="cth: Ulangan Harian Bab 2 (Google Form)"></div>
+        <div><label class="${lbl}">Kelas</label>
+          <select id="tlKelas" class="${inp}"><option value="">-- Pilih kelas --</option>${semua ? '<option value="SEMUA">Semua Kelas</option>' : ''}${kelasOpts.map(k => `<option value="${nlEsc(k)}">${nlEsc(k)}</option>`).join('')}</select></div>
+        <div><label class="${lbl}">Masuk ke nilai (bila sheet hanya punya 1 kolom nilai)</label>
+          <select id="tlJenis" class="${inp}">${NL_JENIS.map(j => `<option value="${j}">${NL_LABEL[j]}</option>`).join('')}</select></div>
+        <div class="sm:col-span-2"><label class="${lbl}">Cara sinkron</label>
+          <select id="tlTipe" onchange="tlUbahTipe()" class="${inp}">
+            <option value="Sheet">Google Sheet (baca dari link spreadsheet)</option>
+            <option value="CSV">CSV dari URL (Publish to web / export web lain)</option>
+            <option value="Webhook">Webhook (web lain mengirim nilai ke aplikasi ini)</option>
+          </select></div>
+        <div class="sm:col-span-2"><label class="${lbl}">Link untuk siswa mengerjakan (opsional)</label>
+          <input id="tlLinkSiswa" value="${val(e && e.linkSiswa)}" class="${inp}" placeholder="https://forms.gle/... atau web kuis lain"></div>
+
+        <div id="tlBlokSumber" class="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 border border-gray-100 rounded-xl p-3 bg-gray-50/60">
+          <div class="sm:col-span-2"><label class="${lbl}">Link sumber data (hasil)</label>
+            <input id="tlUrl" value="${val(e && e.url)}" class="${inp}" placeholder="https://docs.google.com/spreadsheets/d/..."></div>
+          <p class="sm:col-span-2 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg p-2.5 leading-relaxed">
+            Cukup tempel link sheet-nya. Kolom <b>NISN, Nama, Score, Nilai Pemahaman &amp; Pengetahuan,</b> dan <b>Nilai Analisa</b> dikenali
+            <b>otomatis</b> dari judul kolom, tulisannya tidak harus sama persis dengan yang di sini.
+            Untuk Google Sheet: bagikan ke akun Google pemilik aplikasi ini (Viewer cukup).</p>
+          <details class="sm:col-span-2" ${e && (e.kNisn || e.kNama || e.kScore || e.kAnalisa || e.linkForm) ? 'open' : ''}>
+            <summary class="text-[11px] font-bold text-gray-600 cursor-pointer">Pengaturan kolom manual (opsional, isi hanya jika judul kolomnya tidak terbaca otomatis)</summary>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+              <div><label class="${lbl}">Nama kolom NISN</label><input id="tlKNisn" value="${val(e && e.kNisn)}" class="${inp}" placeholder="cth: NISN"></div>
+              <div><label class="${lbl}">Nama kolom Nama</label><input id="tlKNama" value="${val(e && e.kNama)}" class="${inp}" placeholder="cth: NAMA"></div>
+              <div><label class="${lbl}">Kolom nilai tunggal</label><input id="tlKScore" value="${val(e && e.kScore)}" class="${inp}" placeholder="cth: Score"></div>
+              <div><label class="${lbl}">Kolom nilai Analisa</label><input id="tlKAnalisa" value="${val(e && e.kAnalisa)}" class="${inp}" placeholder="cth: NILAI ANALISA"></div>
+              <div class="sm:col-span-2"><label class="${lbl}">Link Google Form (untuk rincian benar/salah per soal)</label>
+                <input id="tlLinkForm" value="${val(e && e.linkForm)}" class="${inp}" placeholder="https://docs.google.com/forms/d/.../edit">
+                <p class="text-[10px] text-gray-500 mt-1">Biasanya terbaca otomatis dari spreadsheet jawaban. Isi hanya jika di kolom &ldquo;Sinkron terakhir&rdquo; muncul pesan link Form tidak ditemukan. Form harus berjenis Quiz dan bisa dibuka oleh akun pemilik aplikasi.</p></div>
+              <p class="sm:col-span-2 text-[10px] text-gray-500">Nama kolom boleh ditulis sebagian saja atau pakai huruf kolom (A, B, C).</p>
+            </div>
+          </details>
+        </div>
+
+        <div><label class="${lbl}">Nilai maksimal di sumber</label>
+          <input id="tlMaks" type="number" min="1" value="${e ? nlEsc(e.maks) : 100}" class="${inp}">
+          <p class="text-[10px] text-gray-400 mt-1">Nilai maksimal Pemahaman dan Analisa (cth: 100). Score ditampilkan apa adanya.</p></div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+        <button onclick="closeModal()" class="btn-secondary px-5 py-2.5 rounded-xl text-sm">Batal</button>
+        <button onclick="tlSimpan()" id="tlBtnSimpan" class="btn-primary px-6 py-2.5 rounded-xl text-sm"><i class="fas fa-save mr-1"></i> ${e ? 'Simpan Perubahan' : 'Simpan'}</button>
+      </div>
+    </div>
+  </div>`);
+  if (e) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    set('tlKelas', e.kelas); set('tlJenis', e.jenis); set('tlTipe', e.tipe);
+    document.getElementById('tlTipe').disabled = true;   // tipe tidak bisa diubah setelah dibuat
+    tlUbahTipe();
+  }
+}
+
+function tlUbahTipe() {
+  const t = document.getElementById('tlTipe').value;
+  document.getElementById('tlBlokSumber').style.display = (t === 'Webhook') ? 'none' : '';
+}
+
+function tlSimpan() {
+  const v = id => document.getElementById(id).value.trim();
+  const payload = { judul: v('tlJudul'), kelas: v('tlKelas'), jenis: v('tlJenis'), tipe: v('tlTipe'),
+    linkSiswa: v('tlLinkSiswa'), url: v('tlUrl'), kNisn: v('tlKNisn'), kNama: v('tlKNama'), kScore: v('tlKScore'),
+    kAnalisa: v('tlKAnalisa'), linkForm: v('tlLinkForm'), maks: v('tlMaks') };
+  const btn = document.getElementById('tlBtnSimpan');
+  const idEdit = tlEditId;
+  btn.disabled = true;
+  showLoading();
+  const run = google.script.run
+    .withSuccessHandler(res => {
+      hideLoading(); btn.disabled = false;
+      if (!res.success) { Swal.fire('Belum bisa disimpan', res.message, 'warning'); return; }
+      closeModal();
+      tlLoad();
+      if (!idEdit && payload.tipe === 'Webhook') {
+        // tampilkan URL + kunci segera
+        setTimeout(() => { google.script.run.withSuccessHandler(r => { if (r.success) { tlData = r.data; tlWebhookUrl = r.webhookUrl || ''; const i = tlData.findIndex(x => x.id === res.id); if (i >= 0) tlInfoWebhook(i); } }).tautanList(nlToken()); }, 300);
+      } else {
+        Swal.fire({ icon: (!res.sinkron || res.sinkron.ok) ? 'success' : 'warning', title: idEdit ? 'Tautan diperbarui' : 'Tautan dibuat', text: res.message });
+      }
+    })
+    .withFailureHandler(err => { hideLoading(); btn.disabled = false; Swal.fire('Error', String(err.message || err), 'error'); });
+  if (idEdit) run.tautanUbah(nlToken(), idEdit, payload);
+  else run.tautanBuat(nlToken(), payload);
+}
+
+// ---------------------------------------------------------------------------
+// INFO WEBHOOK (URL, kunci, contoh)
+// ---------------------------------------------------------------------------
+function tlSalin(teks) {
+  const done = () => showAlert('success', 'Disalin.');
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(teks).then(done, () => tlSalinLama(teks, done));
+  else tlSalinLama(teks, done);
+}
+function tlSalinLama(teks, done) {
+  const ta = document.createElement('textarea'); ta.value = teks; document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) {} document.body.removeChild(ta);
+}
+
+function tlInfoWebhook(i) {
+  const k = tlData[i]; if (!k) return;
+  const url = tlWebhookUrl || '(URL belum terdeteksi — salin dari menu Deploy > Manage deployments)';
+  const contoh = JSON.stringify({ key: k.rahasia, nisn: '1234567890', score: 85 }, null, 2);
+  const banyak = JSON.stringify({ key: k.rahasia, score_maks: 20, data: [{ nisn: '1234567890', score: 17 }, { nisn: '0987654321', score: 14 }] }, null, 2);
+  const gform =
+`// Tempel di Apps Script milik GOOGLE FORM (Extensions > Apps Script),
+// lalu Triggers > Add trigger > fungsi kirimNilai > From form > On form submit.
+// Form harus punya pertanyaan berjudul "NISN" dan dijadikan Quiz.
+function kirimNilai(e) {
+  var score = 0, nisn = '';
+  e.response.getItemResponses().forEach(function (ir) {
+    if (ir.getItem().getTitle().toLowerCase() === 'nisn') nisn = String(ir.getResponse()).trim();
+    var s = ir.getScore(); if (s !== null) score += s;
+  });
+  UrlFetchApp.fetch('${url}', {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify({ key: '${k.rahasia}', nisn: nisn, score: score })
+  });
+}`;
+  const blok = (judul, teks) => `
+    <div class="mb-4">
+      <div class="flex justify-between items-center mb-1"><span class="text-xs font-bold text-gray-700">${judul}</span>
+        <button onclick="tlSalin(this.parentNode.nextElementSibling.textContent)" class="text-[10px] font-bold text-emerald-700 hover:underline"><i class="far fa-copy mr-1"></i>Salin</button></div>
+      <pre class="text-[11px] bg-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">${nlEsc(teks)}</pre></div>`;
+  showModal(`
+  <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+    <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+      <div><h3 class="font-bold text-gray-800">Webhook: ${nlEsc(k.judul)}</h3><p class="text-xs text-gray-500">Web lain mengirim nilai (HTTP POST JSON) ke alamat ini.</p></div>
+      <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="p-5 max-h-[72vh] overflow-y-auto">
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 mb-4 leading-relaxed">
+        <b>Rahasiakan kunci ini.</b> Siapa pun yang memilikinya bisa mengirim nilai untuk tautan ini. Deploy web app harus berakses <b>Anyone</b> agar web lain bisa mengirim.
+      </div>
+      ${blok('URL tujuan (POST)', url)}
+      ${blok('Kunci rahasia', k.rahasia)}
+      ${blok('Contoh kirim satu siswa', contoh)}
+      ${blok('Contoh kirim banyak siswa (score 17 dari 20)', banyak)}
+      ${blok('Skrip siap pakai untuk Google Form Quiz', gform)}
+    </div>
+  </div>`);
+}
+
+// ---------------------------------------------------------------------------
+// SISWA
+// ---------------------------------------------------------------------------
+function loadTautanSiswa() {
+  nlOpen('view-tautan-siswa', 'Kuis Eksternal', 'Kuis Eksternal');
+  tlLoadSiswa();
+}
+
+function tlLoadSiswa() {
+  const box = document.getElementById('tlSiswaList');
+  box.innerHTML = '<div class="col-span-full p-10 text-center text-gray-400"><i class="fas fa-circle-notch fa-spin mr-2"></i>Memuat...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { box.innerHTML = `<div class="col-span-full p-10 text-center text-red-500">${nlEsc(res.message)}</div>`; return; }
+      if (!res.data.length) { box.innerHTML = '<div class="col-span-full page-card p-10 text-center text-gray-400">Belum ada kuis eksternal untuk kelasmu.</div>'; return; }
+      box.innerHTML = res.data.map(k => `
+        <div class="page-card p-4">
+          <div class="flex justify-between items-start gap-2">
+            <h4 class="font-bold text-gray-800">${nlEsc(k.judul)}</h4>
+            <span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold shrink-0">${nlEsc(nlJ(k.jenis))}</span>
+          </div>
+          ${k.score !== null
+            ? `<div class="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl p-3 mt-3">
+                 <div class="text-[10px] font-bold text-emerald-700 uppercase">Nilai tersinkron</div>
+                 <div class="text-2xl font-bold text-emerald-800">${k.score}</div></div>`
+            : `<p class="text-[11px] text-gray-500 mt-2">Belum ada nilai tercatat. Setelah mengerjakan, nilai muncul otomatis.</p>`}
+          <a href="${nlEsc(k.link)}" target="_blank" rel="noopener" class="btn-primary block text-center w-full py-2.5 rounded-xl text-sm mt-3"><i class="fas fa-arrow-up-right-from-square mr-1"></i> ${k.score !== null ? 'Buka lagi' : 'Kerjakan sekarang'}</a>
+        </div>`).join('');
+    })
+    .withFailureHandler(err => { box.innerHTML = `<div class="col-span-full p-10 text-center text-red-500">Gagal: ${nlEsc(err.message || err)}</div>`; })
+    .tautanListSiswa(nlToken());
+}
+</script>

@@ -1,0 +1,1260 @@
+<!-- ======================================================================
+     REKAP NILAI DIGITAL & KUIS ONLINE — Absensi Siswa Digital
+     File HTML terpisah bernama "nilai" di project Apps Script (ganti file lama).
+     Di-include dari index.html lewat: <?!= include('nilai') ?>
+
+     PERUBAHAN VERSI INI:
+      - "Nilai Harian" diganti nama menjadi "Nilai Pemahaman & Pengetahuan"
+      - Nilai Analisa sekarang berdiri sendiri (data terpisah)
+      - Kolom "Rata-rata" diganti "Nilai Akhir" (bobot 45% / 45% / 10%)
+     ====================================================================== -->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&display=swap');
+  /* ===== REKAP NILAI: tampilan ceria ===== */
+  .rk-poster { --rk-font: 'Baloo 2','Comic Sans MS','Segoe UI',sans-serif; position: relative; border-radius: 22px; overflow: hidden; border: 3px solid #fff; box-shadow: 0 8px 28px rgba(45,156,255,.22), 0 0 0 2px #bfe3ff;
+    background: radial-gradient(circle at 12% 8%, #fff 0 6%, transparent 7%), radial-gradient(circle at 88% 14%, #fff 0 5%, transparent 6%), linear-gradient(180deg, #bfe8ff 0%, #e4f6ff 38%, #d8f3c4 100%); font-family: var(--rk-font); }
+  .rk-bunting { display: block; }
+  .rk-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 14px 18px; padding: 6px 16px 14px; }
+  .rk-sun { animation: rkSway 5s ease-in-out infinite; }
+  @keyframes rkSway { 0%,100% { transform: rotate(-4deg);} 50% { transform: rotate(4deg);} }
+  .rk-sign { background: linear-gradient(180deg,#c98a4b,#a86a2f); border: 3px solid #f6dfbd; border-radius: 14px; padding: 8px 14px; color: #fff; min-width: 190px; box-shadow: 0 4px 0 #7a4a1c, 0 8px 14px rgba(0,0,0,.15); }
+  .rk-sign-row { display: flex; gap: 10px; align-items: baseline; font-size: 13px; font-weight: 700; letter-spacing: .5px; }
+  .rk-sign-row span { opacity: .9; min-width: 62px; }
+  .rk-sign-row b { font-size: 15px; text-shadow: 0 1px 0 rgba(0,0,0,.25); }
+  .rk-sign-purple { background: linear-gradient(180deg,#9b6cf7,#7b4fe0); border-color: #e6d9ff; box-shadow: 0 4px 0 #5a35b8, 0 8px 14px rgba(0,0,0,.15); position: relative; text-align: center; min-width: 150px; }
+  .rk-sign-tag { font-weight: 800; font-size: 12px; letter-spacing: 1px; }
+  .rk-sign-box { background: #fff; color: #5a35b8; border-radius: 10px; margin-top: 4px; font-size: 22px; line-height: 1.2; padding: 1px 0; }
+  .rk-pencil { position: absolute; right: -14px; top: -18px; font-size: 30px; transform: rotate(20deg); }
+  .rk-titlebox { text-align: center; position: relative; }
+  .rk-title { font-family: var(--rk-font); font-weight: 800; font-size: clamp(34px, 6vw, 58px); line-height: 1; display: flex; justify-content: center; align-items: center; letter-spacing: 1px; }
+  .rk-title span { color: var(--c); -webkit-text-stroke: 7px #fff; paint-order: stroke fill; text-shadow: 0 5px 0 rgba(0,0,0,.14); display: inline-block; transform: rotate(-3deg); }
+  .rk-title span:nth-child(even) { transform: rotate(3deg) translateY(-2px); }
+  .rk-title i { width: 16px; }
+  .rk-ribbon { display: inline-block; margin-top: 4px; background: linear-gradient(180deg,#ff5f9e,#e8317a); color: #fff; font-weight: 800; letter-spacing: 2px; font-size: clamp(13px, 2.4vw, 22px); padding: 2px 34px; border: 3px solid #fff; border-radius: 12px; box-shadow: 0 4px 0 #b3195a; text-shadow: 0 2px 0 rgba(0,0,0,.2); }
+  .rk-rainbow { position: absolute; right: -58px; bottom: -4px; width: 64px; height: 34px; border-radius: 64px 64px 0 0; border: 6px solid #ff6b6b; border-bottom: 0; box-shadow: 0 0 0 6px #ffd24a inset, 0 0 0 12px #5ad17a inset, 0 0 0 18px #4aa8ff inset; opacity: .9; }
+  .rk-tablewrap { margin: 0 12px; border: 3px solid #fff; border-radius: 16px; background: #fff; box-shadow: 0 0 0 2px #cfe6f7, 0 6px 16px rgba(0,0,0,.08); overflow: hidden; }
+  .rk-table th, .rk-table td { font-family: var(--rk-font); }
+  .rk-table thead th { text-align: center; text-transform: uppercase; font-size: 10.5px; font-weight: 800; letter-spacing: .3px; padding: 6px 8px; border-right: 2px solid #fff; position: sticky; z-index: 3; color: #35314b; }
+  .rk-g th { top: 0; height: 30px; font-size: 12px !important; color: #fff !important; text-shadow: 0 1px 0 rgba(0,0,0,.25); }
+  .rk-h th { top: 30px; z-index: 2; border-bottom: 3px solid #fff; }
+  .rk-g1 { background: linear-gradient(180deg,#58b8ff,#2d8fe6); } .rk-g2 { background: linear-gradient(180deg,#ffb04a,#f08a1c); }
+  .rk-g3 { background: linear-gradient(180deg,#4fd1a5,#27ae80); } .rk-g4 { background: linear-gradient(180deg,#ff6fa5,#e8317a); }
+  .rk-h1 { background: #d9eeff; } .rk-h-score { background: #d6efff; } .rk-h-hrn { background: #ffe2c2; } .rk-h-ana { background: #e6dcff; }
+  .rk-h-ref { background: #d4f6e6; } .rk-h-dis { background: #fff3b8; } .rk-h-wkt { background: #dff3ff; } .rk-h-soal { background: #d4f6e6; }
+  .rk-h-tot { background: #ffe0ec; } .rk-h-akh { background: #ffd0e3; }
+  .rk-pct { display: block; margin: 2px auto 0; width: max-content; background: #fff; color: #e8317a; border-radius: 999px; padding: 0 7px; font-size: 10px; box-shadow: 0 1px 0 rgba(0,0,0,.12); }
+  #nlRekapBody td { border-bottom: 1px dashed rgba(0,0,0,.12); border-right: 1px solid rgba(255,255,255,.9); font-family: var(--rk-font); font-weight: 600; }
+  #nlRekapBody tr:nth-child(odd) td { box-shadow: inset 0 0 0 999px rgba(255,255,255,.55); }
+  #nlRekapBody tr:hover td { box-shadow: inset 0 0 0 999px rgba(255,235,120,.35); }
+  #nlRekapBody td:nth-child(1), #nlRekapBody td:nth-child(2), #nlRekapBody td:nth-child(3) { background: #eaf5ff; }
+  #nlRekapBody td:nth-child(4) { background: #e3f3ff; } #nlRekapBody td:nth-child(5) { background: #fff0dc; }
+  #nlRekapBody td:nth-child(6) { background: #efe8ff; } #nlRekapBody td:nth-child(7) { background: #e4f9ee; }
+  #nlRekapBody td:nth-child(8) { background: #fff8d0; } #nlRekapBody td:nth-child(9) { background: #eaf7ff; }
+  #nlRekapBody td:nth-child(10) { background: #e4f9ee; } #nlRekapBody td:nth-child(11) { background: #ffeaf2; }
+  #nlRekapBody td:nth-child(12) { background: #ffdbe9; }
+  #nlRekapBody td[colspan] { background: #fff; }
+  #nlRekapBody td.nl-merah { background: #fee2e2 !important; box-shadow: none !important; }
+  .rk-no { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 50%; background: var(--b,#58b8ff); color: #fff; font-weight: 800; font-size: 11px; box-shadow: 0 2px 0 rgba(0,0,0,.15); }
+  .rk-pill { display: inline-block; min-width: 42px; padding: 3px 12px; border-radius: 999px; font-weight: 800; font-size: 14px; color: #fff; border: 2px solid #fff; box-shadow: 0 3px 0 rgba(0,0,0,.18); }
+  .rk-pill-a { background: linear-gradient(180deg,#3fd48f,#1fa86a); } .rk-pill-b { background: linear-gradient(180deg,#ffc13d,#f29a0d); } .rk-pill-c { background: linear-gradient(180deg,#ff7b7b,#e24848); }
+  .rk-bottom { display: flex; flex-wrap: wrap; align-items: stretch; justify-content: center; gap: 12px; padding: 14px 12px 6px; }
+  .rk-ket { flex: 2 1 280px; background: #fffdf5; border: 3px dashed #ffb04a; border-radius: 14px; padding: 8px 12px; font-size: 11px; color: #5a4a2a; line-height: 1.5; }
+  .rk-ket:before { content: 'KETERANGAN'; display: block; font-weight: 800; color: #e8317a; font-size: 12px; letter-spacing: 1px; }
+  .rk-motto { flex: 1 1 190px; background: linear-gradient(180deg,#c98a4b,#a86a2f); color: #fff; border: 3px solid #f6dfbd; border-radius: 14px; padding: 10px 12px; text-align: center; font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 0 #7a4a1c; }
+  .rk-ttd { flex: 0 1 150px; background: #fff; border: 3px solid #ffc4dc; border-radius: 14px; padding: 6px 10px; text-align: center; font-size: 11px; color: #4a3a55; }
+  .rk-ttd b { display: block; color: #e8317a; font-size: 12px; min-height: 18px; }
+  .rk-line { border-bottom: 1px dotted #999; height: 22px; margin-bottom: 2px; }
+  .rk-ttd small { display: block; text-align: left; color: #888; }
+  .rk-kid { font-size: 52px; line-height: 1; align-self: flex-end; position: relative; }
+  .rk-kid span { position: absolute; font-size: 24px; right: -12px; bottom: 0; }
+  .rk-kid2 span { left: -12px; right: auto; }
+  .rk-grass { text-align: center; padding: 6px 0 8px; font-size: 18px; letter-spacing: 4px; white-space: nowrap; overflow: hidden; background: linear-gradient(180deg, transparent, rgba(76,175,80,.28)); }
+  @media (max-width: 640px) { .rk-kid { display: none; } .rk-rainbow { display: none; } .rk-sign { min-width: 0; width: 100%; } }
+  .nl-th { padding: 10px 8px; text-align: center; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #4b5563; background: #f3f4f6; white-space: nowrap; }
+  .nl-td { padding: 8px; text-align: center; border-bottom: 1px solid #f1f5f9; }
+  .nl-opt { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1.5px solid #e5e7eb; border-radius: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
+  .nl-opt:hover { border-color: #4fb349; background: #f6fbf5; }
+  .nl-opt.nl-picked { border-color: #1B5E20; background: #eef8ec; }
+</style>
+
+<script>
+// ============================================================================
+// STATE
+// ============================================================================
+const NL_JENIS = ['Harian', 'Analisa', 'Refleksi'];
+const NL_KOLOM = ['Harian', 'Analisa', 'Refleksi', 'Disiplin'];
+// "Harian" adalah kunci internal (agar data lama tetap aman). Yang tampil: Pemahaman & Pengetahuan.
+const NL_LABEL = { Score: 'Score', Harian: 'Nilai Pemahaman & Pengetahuan', Analisa: 'Nilai Analisa', Refleksi: 'Refleksi', Disiplin: 'Nilai Disiplin' };
+const NL_TAMPIL = ['Score', 'Harian', 'Analisa', 'Refleksi', 'Disiplin'];
+const NL_SHORT = { Harian: 'Pemahaman & Pengetahuan', Analisa: 'Analisa', Refleksi: 'Refleksi', Score: 'Score' };
+function nlJ(j) { return NL_SHORT[j] || j; }
+
+let nlBobot = { Harian: 0.45, Analisa: 0.45, Disiplin: 0.1 };
+let nlMode = 'lengkap';
+let nlKkm = 75;
+function nlMerah(j, k) {
+  return (j === 'Harian' || j === 'Analisa') && k && k.ada && !k.teks && Number(k.nilai) < nlKkm;
+}
+let nlSoalDraft = [];
+let nlRekapData = [];
+let nlKuisTimer = null;
+let nlKuisAktif = null;   // { id, soal, jawaban[] }
+let nlKuisSelesai = false;
+
+function nlEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function nlToken() { return currentUser ? currentUser.token : null; }
+function nlPct(j) { return Math.round((nlBobot[j] || 0) * 100) + '%'; }
+function nlCatatMode() {
+  if (nlMode === 'nol') return 'Komponen yang belum terisi dihitung 0.';
+  if (nlMode === 'proporsional') return 'Komponen yang belum terisi diabaikan dan bobot dihitung ulang.';
+  return 'Nilai Akhir baru muncul setelah ketiga komponen terisi.';
+}
+
+// ============================================================================
+// SUNTIK VIEW KE DALAM #mainContentArea (tanpa mengubah HTML lama)
+// ============================================================================
+function nlInjectViews() {
+  const host = document.getElementById('mainContentArea');
+  if (!host || document.getElementById('view-rekap-nilai')) return;
+
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+  <!-- REKAP NILAI -->
+  <div id="view-rekap-nilai" class="view-section animate-fade-in">
+    <div class="page-card p-4 mb-4">
+  <div class="flex flex-col gap-3">
+    <div>
+      <h3 class="font-bold text-gray-800 text-lg">Rekap Nilai Digital</h3>
+      <p class="text-xs text-gray-500 mt-0.5">Pilih tanggal, rentang, atau bulan. Nilai dan kehadiran dihitung hanya pada periode yang dipilih.</p>
+    </div>
+    <div class="flex flex-wrap gap-2 items-end">
+      <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Kelas</label>
+        <select id="nlRekapKelas" class="bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg p-2.5 font-bold min-w-[140px]"></select></div>
+      <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Dari tanggal</label>
+        <input type="date" id="nlTglMulai" class="bg-gray-50 border border-gray-200 text-xs rounded-lg p-2.5"></div>
+      <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Sampai tanggal</label>
+        <input type="date" id="nlTglAkhir" class="bg-gray-50 border border-gray-200 text-xs rounded-lg p-2.5"></div>
+      <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Rekap bulanan</label>
+        <input type="month" id="nlBulan" onchange="nlPilihBulan(this.value)" class="bg-gray-50 border border-gray-200 text-xs rounded-lg p-2.5"></div>
+      <button onclick="nlPresetHariIni()" class="btn-secondary px-3 py-2.5 rounded-lg text-xs">Hari ini</button>
+      <button onclick="nlPresetBulanIni()" class="btn-secondary px-3 py-2.5 rounded-lg text-xs">Bulan ini</button>
+      <input type="text" id="nlRekapCari" oninput="nlRenderRekap()" placeholder="Cari nama..." class="bg-gray-50 border border-gray-200 text-xs rounded-lg p-2.5 w-32">
+      <button onclick="nlLoadRekap()" class="btn-primary px-4 py-2.5 rounded-lg text-xs"><i class="fas fa-search mr-1"></i> Tampilkan</button>
+      <button id="nlBtnSinkron" onclick="nlSinkronNilai()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-xs font-bold"><i class="fas fa-rotate mr-1"></i> Sinkron Nilai</button>
+      <button id="nlBtnInput" onclick="nlBukaInputNilai()" class="btn-secondary px-4 py-2.5 rounded-lg text-xs"><i class="fas fa-pen mr-1"></i> Input Nilai</button>
+      <button id="nlBtnPengaturan" onclick="nlBukaPengaturan()" class="btn-secondary px-4 py-2.5 rounded-lg text-xs"><i class="fas fa-sliders mr-1"></i> Pengaturan</button>
+      <button onclick="nlExportRekap()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-lg text-xs font-bold"><i class="fas fa-file-excel mr-1"></i> Export</button>
+    </div>
+    <p id="nlPeriodeLabel" class="text-[11px] text-emerald-700 font-semibold"></p>
+  </div>
+</div>
+    <div id="rkPoster" class="rk-poster">
+      <svg class="rk-bunting" height="34" width="100%" aria-hidden="true">
+        <defs><pattern id="rkFlag" width="150" height="34" patternUnits="userSpaceOnUse">
+          <polygon points="4,4 28,4 16,30" fill="#ff6fa5"/><polygon points="34,4 58,4 46,30" fill="#ffc83d"/>
+          <polygon points="64,4 88,4 76,30" fill="#4fd1a5"/><polygon points="94,4 118,4 106,30" fill="#58b8ff"/>
+          <polygon points="124,4 148,4 136,30" fill="#b388ff"/></pattern></defs>
+        <rect width="100%" height="4" fill="#8b5a2b" opacity=".55"/><rect y="2" width="100%" height="32" fill="url(#rkFlag)"/>
+      </svg>
+      <div class="rk-head">
+        <div class="rk-deco rk-sun" aria-hidden="true">
+          <svg viewBox="0 0 100 100" width="84" height="84"><g stroke="#ffb300" stroke-width="6" stroke-linecap="round">
+            <path d="M50 4v12M50 84v12M4 50h12M84 50h12M17 17l8 8M75 75l8 8M83 17l-8 8M25 75l-8 8"/></g>
+            <circle cx="50" cy="50" r="27" fill="#ffd93b" stroke="#ffb300" stroke-width="3"/>
+            <circle cx="41" cy="46" r="3.5" fill="#6b4200"/><circle cx="59" cy="46" r="3.5" fill="#6b4200"/>
+            <path d="M40 57q10 10 20 0" stroke="#6b4200" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+            <circle cx="35" cy="55" r="4" fill="#ff9aa2" opacity=".7"/><circle cx="65" cy="55" r="4" fill="#ff9aa2" opacity=".7"/></svg>
+        </div>
+        <div class="rk-sign">
+          <div class="rk-sign-row"><span>KELAS</span><b id="rkKelas">-</b></div>
+          <div class="rk-sign-row"><span>PERIODE</span><b id="rkPeriode">Semua data</b></div>
+        </div>
+        <div class="rk-titlebox">
+          <div class="rk-title" aria-label="Daftar Nilai">
+            <span style="--c:#ff4f93">D</span><span style="--c:#ff9f1c">A</span><span style="--c:#ffd400">F</span><span style="--c:#2ec27e">T</span><span style="--c:#2d9cff">A</span><span style="--c:#8e5cf7">R</span>
+            <i></i>
+            <span style="--c:#ff4f93">N</span><span style="--c:#ff9f1c">I</span><span style="--c:#ffd400">L</span><span style="--c:#2ec27e">A</span><span style="--c:#2d9cff">I</span>
+          </div>
+          <div class="rk-ribbon">REKAP NILAI DIGITAL</div>
+          <div class="rk-rainbow" aria-hidden="true"></div>
+        </div>
+        <div class="rk-sign rk-sign-purple">
+          <div class="rk-sign-tag">JUMLAH SISWA</div>
+          <div class="rk-sign-box"><b id="rkJumlah">0</b></div>
+          <span class="rk-pencil" aria-hidden="true">✏️</span>
+        </div>
+      </div>
+
+      <div class="rk-tablewrap">
+        <div class="overflow-x-auto" style="max-height:68vh;">
+          <table class="rk-table w-full text-xs border-collapse">
+            <thead>
+              <tr class="rk-g">
+                <th colspan="3" class="rk-g1">👩‍🎓 Peserta Didik</th>
+                <th colspan="5" class="rk-g2">⭐ Komponen Nilai</th>
+                <th colspan="3" class="rk-g3">📝 Aktivitas</th>
+                <th class="rk-g4">🏆 Hasil</th>
+              </tr>
+              <tr class="rk-h">
+                <th class="rk-h1 w-10">No</th>
+                <th class="rk-h1" style="text-align:left;min-width:150px">Nama</th>
+                <th class="rk-h1">Kelas</th>
+                <th class="rk-h-score">Score</th>
+                <th class="rk-h-hrn" style="white-space:normal;min-width:120px">Nilai Pemahaman &amp; Pengetahuan<span class="rk-pct" data-j="Harian">45%</span></th>
+                <th class="rk-h-ana">Nilai Analisa<span class="rk-pct" data-j="Analisa">45%</span></th>
+                <th class="rk-h-ref">Refleksi</th>
+                <th class="rk-h-dis">Nilai Disiplin<span class="rk-pct" data-j="Disiplin">10%</span></th>
+                <th class="rk-h-wkt">Waktu Mengerjakan</th>
+                <th class="rk-h-soal" style="white-space:normal;min-width:90px">Soal Benar / Salah</th>
+                <th class="rk-h-tot">Total</th>
+                <th class="rk-h-akh">Nilai Akhir</th>
+              </tr>
+            </thead>
+            <tbody id="nlRekapBody"><tr><td colspan="12" class="p-10 text-center text-gray-400">Pilih kelas lalu klik Tampilkan.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="rk-bottom">
+        <div class="rk-kid" aria-hidden="true">🧕<span>📚</span></div>
+        <div id="nlRekapFoot" class="rk-ket">Pilih kelas lalu klik Tampilkan.</div>
+        <div class="rk-motto">Belajar dengan semangat,<br>berproses dengan hati,<br>berhasil pasti diraih! 🌟</div>
+        <div class="rk-ttd"><div>Mengetahui</div><b>Kepala Sekolah</b><div class="rk-line"></div><small>NIP.</small></div>
+        <div class="rk-ttd"><div>Wali Kelas</div><b id="rkWali">&nbsp;</b><div class="rk-line"></div><small>NIP.</small></div>
+        <div class="rk-kid rk-kid2" aria-hidden="true">👦<span>🎒</span></div>
+      </div>
+      <div class="rk-grass" aria-hidden="true">🌷 🌼 🦋 🌸 🌻 🌷 🌼 🦋 🌸 🌻 🌷 🌼 🦋 🌸 🌻</div>
+    </div>
+  </div>
+
+  <!-- KUIS (GURU) -->
+  <div id="view-kuis-guru" class="view-section animate-fade-in">
+    <div class="page-card p-4 mb-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div>
+        <h3 class="font-bold text-gray-800 text-lg">Kuis Online</h3>
+        <p class="text-xs text-gray-500 mt-0.5">Buat kuis untuk kelas Anda. Hasil siswa otomatis masuk ke Rekap Nilai.</p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="nlLoadKuisGuru()" class="btn-secondary px-3 py-2.5 rounded-lg text-xs" title="Muat ulang"><i class="fas fa-sync-alt"></i></button>
+        <button onclick="nlBukaBuatKuis()" class="btn-primary px-4 py-2.5 rounded-lg text-xs"><i class="fas fa-plus mr-1"></i> Buat Kuis</button>
+      </div>
+    </div>
+    <div class="page-card overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr>
+              <th class="nl-th" style="text-align:left">Judul</th>
+              <th class="nl-th">Mapel</th>
+              <th class="nl-th">Kelas</th>
+              <th class="nl-th">Masuk ke nilai</th>
+              <th class="nl-th">Soal</th>
+              <th class="nl-th">Dikerjakan</th>
+              <th class="nl-th">Status</th>
+              <th class="nl-th">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="nlKuisGuruBody"><tr><td colspan="8" class="p-10 text-center text-gray-400">Memuat...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- KUIS (SISWA) -->
+  <div id="view-kuis-siswa" class="view-section animate-fade-in">
+    <div class="page-card p-4 mb-4 flex items-center justify-between gap-3">
+      <div>
+        <h3 class="font-bold text-gray-800 text-lg">Kuis Saya</h3>
+        <p class="text-xs text-gray-500 mt-0.5">Kuis dari guru untuk kelasmu. Setiap kuis hanya bisa dikerjakan satu kali.</p>
+      </div>
+      <button onclick="nlLoadKuisSiswa()" class="btn-secondary px-3 py-2.5 rounded-lg text-xs" title="Muat ulang"><i class="fas fa-sync-alt"></i></button>
+    </div>
+    <div id="nlKuisSiswaList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+  </div>
+
+  <!-- KERJAKAN KUIS -->
+  <div id="view-kuis-kerjakan" class="view-section animate-fade-in">
+    <div class="max-w-3xl mx-auto">
+      <div class="page-card p-4 mb-4 sticky top-0 z-10 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <h3 id="nlKJudul" class="font-bold text-gray-800 truncate">Kuis</h3>
+          <p id="nlKMeta" class="text-xs text-gray-500"></p>
+        </div>
+        <div id="nlKTimer" class="hidden shrink-0 text-sm font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">00:00</div>
+      </div>
+      <div id="nlKSoal"></div>
+      <div id="nlKAksi" class="mt-4 flex gap-2">
+        <button onclick="nlBatalKerjakan()" class="btn-secondary px-5 py-3 rounded-xl text-sm">Keluar</button>
+        <button onclick="nlKirimJawaban(false)" class="btn-primary flex-1 py-3 rounded-xl text-sm"><i class="fas fa-paper-plane mr-1"></i> Kirim Jawaban</button>
+      </div>
+      <div id="nlKHasil" class="hidden"></div>
+    </div>
+  </div>
+
+  <!-- NILAI SAYA -->
+  <div id="view-nilai-saya" class="view-section animate-fade-in">
+    <div id="nlNilaiSayaBody"><div class="p-10 text-center text-gray-400">Memuat...</div></div>
+  </div>
+  `;
+  while (wrap.firstChild) host.appendChild(wrap.firstChild);
+}
+nlInjectViews();
+
+// ============================================================================
+// NAVIGASI
+// ============================================================================
+function nlOpen(viewId, menuName, title) {
+  if (typeof stopAndBack === 'function') stopAndBack(false);
+  if (typeof setActiveMenu === 'function' && menuName) setActiveMenu(menuName);
+  showView(viewId);
+  const t = document.getElementById('pageTitle');
+  if (t) t.textContent = title;
+}
+
+function nlKelasOptions() {
+  if (currentUser && currentUser.role === 'guru' && currentUser.kelas) {
+    return String(currentUser.kelas).split(',').map(k => k.trim()).filter(Boolean);
+  }
+  return (typeof existingClasses !== 'undefined' && existingClasses) ? existingClasses : [];
+}
+
+function nlFmtWaktu(w) {
+  // "2026-10-18 09:30:12" -> "18/10/2026 09:30"
+  const m = String(w || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}` : (w || '-');
+}
+
+// ============================================================================
+// REKAP NILAI
+// ============================================================================
+function loadRekapNilai() {
+  nlOpen('view-rekap-nilai', 'Rekap Nilai', 'Rekap Nilai Digital');
+  const sel = document.getElementById('nlRekapKelas');
+  const opts = nlKelasOptions();
+  const isGuruSatu = currentUser.role === 'guru' && opts.length === 1;
+  const prev = sel.value;
+  sel.innerHTML = (isGuruSatu ? '' : '<option value="">Semua Kelas</option>') +
+    opts.map(k => `<option value="${nlEsc(k)}">${nlEsc(k)}</option>`).join('');
+  if (prev && opts.indexOf(prev) !== -1) sel.value = prev;
+
+  // Tombol input nilai hanya untuk guru & admin
+  document.getElementById('nlBtnInput').style.display = (currentUser.role === 'guru' || currentUser.role === 'admin') ? '' : 'none';
+  document.getElementById('nlBtnSinkron').style.display = (currentUser.role === 'guru' || currentUser.role === 'admin') ? '' : 'none';
+  document.getElementById('nlBtnPengaturan').style.display = (currentUser.role === 'guru' || currentUser.role === 'admin') ? '' : 'none';
+  if (!document.getElementById('nlTglMulai').value) nlPresetBulanIni(); else nlLoadRekap();
+}
+
+function nlTgl(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function nlPresetHariIni() {
+  const t = nlTgl(new Date());
+  document.getElementById('nlTglMulai').value = t;
+  document.getElementById('nlTglAkhir').value = t;
+  document.getElementById('nlBulan').value = '';
+  nlLoadRekap();
+}
+function nlPresetBulanIni() {
+  const n = new Date();
+  document.getElementById('nlTglMulai').value = nlTgl(new Date(n.getFullYear(), n.getMonth(), 1));
+  document.getElementById('nlTglAkhir').value = nlTgl(new Date(n.getFullYear(), n.getMonth() + 1, 0));
+  document.getElementById('nlBulan').value = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0');
+  nlLoadRekap();
+}
+function nlPilihBulan(val) {
+  if (!val) return;
+  const p = val.split('-'), y = parseInt(p[0], 10), m = parseInt(p[1], 10);
+  document.getElementById('nlTglMulai').value = nlTgl(new Date(y, m - 1, 1));
+  document.getElementById('nlTglAkhir').value = nlTgl(new Date(y, m, 0));
+  nlLoadRekap();
+}
+function nlRentang() {
+  return { mulai: document.getElementById('nlTglMulai').value || '', akhir: document.getElementById('nlTglAkhir').value || '' };
+}
+
+function nlLoadRekap() {
+  const kelas = document.getElementById('nlRekapKelas').value;
+  const r = nlRentang();
+  if (r.mulai && r.akhir && r.akhir < r.mulai) { Swal.fire('Tanggal salah', 'Tanggal akhir tidak boleh sebelum tanggal mulai.', 'warning'); return; }
+  document.getElementById('nlPeriodeLabel').textContent =
+    r.mulai ? 'Periode: ' + r.mulai + (r.akhir && r.akhir !== r.mulai ? ' s/d ' + r.akhir : '') : 'Periode: semua data';
+  document.getElementById('nlRekapBody').innerHTML =
+    '<tr><td colspan="12" class="p-10 text-center text-gray-400"><i class="fas fa-circle-notch fa-spin mr-2"></i>Memuat nilai...</td></tr>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) {
+        document.getElementById('nlRekapBody').innerHTML = `<tr><td colspan="12" class="p-10 text-center text-red-500">${nlEsc(res.message)}</td></tr>`;
+        return;
+      }
+      nlRekapData = res.data;
+      if (res.bobot) nlBobot = res.bobot;
+      if (res.mode) nlMode = res.mode;
+      if (res.kkm !== undefined && res.kkm !== null) nlKkm = Number(res.kkm);
+      nlRenderRekap();
+    })
+    .withFailureHandler(err => {
+      document.getElementById('nlRekapBody').innerHTML = `<tr><td colspan="12" class="p-10 text-center text-red-500">Gagal: ${nlEsc(err.message || err)}</td></tr>`;
+    })
+    .getRekapNilai(nlToken(), kelas || null, r.mulai, r.akhir);
+}
+
+function nlCell(k, merah) {
+  if (!k || !k.ada) return '<span class="text-gray-300">-</span>';
+  if (k.teks) {
+    return `<div class="font-bold text-gray-800 text-sm">${nlEsc(k.teks)}</div>` +
+      (!k.hanyaTeks ? `<div class="text-[10px] text-gray-400 mt-0.5">Nilai ${k.nilai}</div>` : '');
+  }
+  return `<div class="font-bold ${merah ? 'text-red-600' : 'text-gray-800'} text-sm">${k.nilai}</div>` +
+         (k.ket ? `<div class="text-[10px] text-gray-400 mt-0.5">${nlEsc(k.ket)}</div>` : '') +
+         (merah ? '<div class="text-[9px] font-bold text-red-500">&lt; KKM</div>' : '');
+}
+
+function nlWarnaAkhir(v) {
+  return v >= 80 ? 'text-emerald-700 bg-emerald-50' : v >= 60 ? 'text-amber-700 bg-amber-50' : 'text-red-700 bg-red-50';
+}
+
+function nlRenderRekap() {
+  const body = document.getElementById('nlRekapBody');
+  const foot = document.getElementById('nlRekapFoot');
+  const selK = document.getElementById('nlRekapKelas');
+  const elK = document.getElementById('rkKelas');
+  if (elK) elK.textContent = (selK && selK.value && selK.selectedIndex >= 0) ? selK.options[selK.selectedIndex].text : 'Semua Kelas';
+  const elP = document.getElementById('rkPeriode');
+  if (elP) elP.textContent = (document.getElementById('nlPeriodeLabel').textContent || '').replace(/^Periode:\s*/, '') || 'Semua data';
+  const elJ = document.getElementById('rkJumlah');
+  if (elJ) elJ.textContent = nlRekapData.length;
+  document.querySelectorAll('.rk-pct').forEach(e => { e.textContent = nlPct(e.getAttribute('data-j')); });
+
+  const dibawah = nlRekapData.filter(d => d.akhirAda && d.akhir < nlKkm).length;
+  if (foot) {
+    foot.innerHTML =
+      'Score, Nilai Pemahaman &amp; Pengetahuan, dan Nilai Analisa mengikuti kolom yang sama di spreadsheet tautan (Score tidak ikut dihitung di Nilai Akhir). ' +
+      'Disiplin dihitung otomatis dari kehadiran (Hadir ÷ hari efektif). ' +
+      '<b>Nilai Akhir = Pemahaman &amp; Pengetahuan ' + nlPct('Harian') + ' + Analisa ' + nlPct('Analisa') + ' + Disiplin ' + nlPct('Disiplin') + '.</b> ' +
+      nlCatatMode() + ' Total = jumlah nilai mentah. Refleksi tidak masuk perhitungan. ' +
+      '<b style="color:#dc2626">KKM = ' + nlKkm + '</b>: nilai di bawah KKM ditandai merah' +
+      (dibawah ? ' (<b>' + dibawah + ' siswa</b> Nilai Akhir-nya di bawah KKM)' : '') + '. ' +
+      'Klik nama atau angka benar/salah untuk melihat nomor soal yang benar dan salah.';
+  }
+  const q = (document.getElementById('nlRekapCari').value || '').toLowerCase().trim();
+  const data = nlRekapData.filter(d => !q || d.nama.toLowerCase().indexOf(q) !== -1 || String(d.nisn).indexOf(q) !== -1);
+  if (!data.length) {
+    body.innerHTML = '<tr><td colspan="12" class="p-10 text-center text-gray-400">Tidak ada siswa untuk filter ini.</td></tr>';
+    return;
+  }
+  body.innerHTML = data.map((d, i) => {
+    const akhirMerah = d.akhirAda && d.akhir < nlKkm;
+    const pillCls = akhirMerah ? 'rk-pill-c' : (d.akhir < nlKkm + 10 ? 'rk-pill-b' : 'rk-pill-a');
+    const akhirHtml = d.akhirAda
+      ? `<span class="rk-pill ${pillCls}">${d.akhir}</span>` + (akhirMerah ? '<div class="text-[9px] font-bold text-red-600 mt-1">Di bawah KKM</div>' : '')
+      : '<span class="text-gray-300">-</span>';
+    const hint = (!d.lengkap && d.kurang && d.kurang.length < 3)
+      ? `<div class="text-[9px] text-amber-600 mt-1 leading-tight">Belum: ${nlEsc(d.kurang.join(', '))}</div>` : '';
+    const kolom = NL_TAMPIL.map(j => {
+      if (j === 'Disiplin') {
+        return `<td class="nl-td">${d.komponen.Disiplin.ada ? '<span class="font-bold text-gray-800 text-sm">' + d.komponen.Disiplin.nilai + '%</span>' : '<span class="text-gray-300">-</span>'}</td>`;
+      }
+      const k = d.komponen[j];
+      const merah = nlMerah(j, k);
+      return `<td class="nl-td ${merah ? 'nl-merah' : ''}">${nlCell(k, merah)}</td>`;
+    }).join('');
+    return `
+    <tr>
+      <td class="nl-td"><span class="rk-no" style="--b:${['#ff6fa5','#ff9f1c','#2ec27e','#2d9cff','#8e5cf7'][i % 5]}">${i + 1}</span></td>
+      <td class="nl-td" style="text-align:left">
+        <button onclick="nlDetailSiswa('${nlEsc(d.nisn)}')" class="font-bold ${akhirMerah ? 'text-red-700' : 'text-gray-800'} hover:text-emerald-700 hover:underline text-left">${nlEsc(d.nama)}</button>
+        <div class="text-[10px] text-gray-400">${nlEsc(d.nisn)}</div>
+      </td>
+      <td class="nl-td"><span class="bg-gray-100 px-2 py-0.5 rounded text-[10px] font-bold">${nlEsc(d.kelas)}</span></td>
+      ${kolom}
+      <td class="nl-td text-[11px] text-gray-600 whitespace-nowrap">${d.waktu ? nlFmtWaktu(d.waktu) : '<span class="text-gray-300">-</span>'}</td>
+      <td class="nl-td">${d.soal
+        ? `<button onclick="nlDetailSiswa('${nlEsc(d.nisn)}')" class="hover:underline" title="Lihat rincian soal"><span class="font-bold text-sm"><span class="text-emerald-700">${d.soal.benar}</span> <span class="text-gray-300">/</span> <span class="text-red-600">${d.soal.salah}</span></span><div class="text-[10px] text-gray-400">benar / salah</div></button>`
+        : '<span class="text-gray-300">-</span>'}</td>
+      <td class="nl-td font-bold text-gray-800">${d.total > 0 ? d.total : '<span class="text-gray-300">-</span>'}</td>
+      <td class="nl-td ${akhirMerah ? 'nl-merah' : ''}">${akhirHtml}${hint}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Tarik ulang semua nilai dari spreadsheet tautan, lalu muat ulang tabel
+function nlSinkronNilai() {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      Swal.fire({ icon: res.success ? 'success' : 'warning', title: res.success ? 'Sinkron selesai' : 'Sinkron belum sempurna', text: res.message });
+      nlLoadRekap();
+    })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .tautanSinkronSemua(nlToken());
+}
+
+function nlExportRekap() {
+  const kelas = document.getElementById('nlRekapKelas').value || null;
+  const r = nlRentang();
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (!res.success) { Swal.fire('Gagal', res.message, 'error'); return; }
+      Swal.fire({
+        icon: 'success', title: 'Excel Siap Diunduh',
+        html: `<a href="${res.url}" target="_blank" rel="noopener" style="display:inline-block;background:#059669;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:13px;margin-top:8px;"><i class="fas fa-file-excel"></i> Buka / Unduh Excel</a>`,
+        confirmButtonText: 'Tutup', confirmButtonColor: '#6b7280'
+      });
+    })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .generateExcelRekapNilai(nlToken(), kelas, r.mulai, r.akhir);
+}
+
+// ---- Detail satu siswa (dipakai guru/admin/wakel di modal, dan siswa di halaman sendiri) ----
+function nlRingkasanHtml(r) {
+  if (r.bobot) nlBobot = r.bobot;
+  if (r.mode) nlMode = r.mode;
+  if (r.kkm !== undefined && r.kkm !== null) nlKkm = Number(r.kkm);
+  const kartu = NL_TAMPIL.map(j => {
+    const k = r.komponen[j];
+    const merah = nlMerah(j, k);
+    const bobotTxt = nlBobot[j] ? 'Bobot ' + nlPct(j) : 'Tidak dibobot';
+    return `
+    <div class="${merah ? 'bg-red-50 border border-red-300' : 'bg-gray-50 border border-gray-100'} rounded-xl p-3 text-center">
+      <div class="text-[10px] font-bold text-gray-500 uppercase leading-tight">${NL_LABEL[j]}</div>
+      <div class="${k.teks ? 'text-lg' : 'text-2xl'} font-bold ${!k.ada ? 'text-gray-300' : merah ? 'text-red-600' : 'text-gray-800'} mt-1">${k.ada ? (k.teks ? nlEsc(k.teks) : (j === 'Disiplin' ? k.nilai + '%' : k.nilai)) : '-'}</div>
+      <div class="text-[10px] text-gray-400 mt-0.5">${k.ada ? nlEsc(k.ket) : 'Belum ada'}</div>
+      <div class="text-[9px] font-bold ${merah ? 'text-red-600' : 'text-emerald-700'} mt-1">${merah ? 'Di bawah KKM (' + nlKkm + ')' : bobotTxt}</div>
+    </div>`;
+  }).join('');
+  const akhirMerah = r.akhirAda && r.akhir < nlKkm;
+  const catatan = r.akhirAda
+    ? ''
+    : `<p class="text-[11px] text-amber-700 mt-2 text-center">${(r.kurang && r.kurang.length)
+        ? 'Nilai Akhir belum muncul, menunggu: ' + nlEsc(r.kurang.join(', ')) + '.' : ''}</p>`;
+  return `
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">${kartu}</div>
+    ${r.waktuKuis ? `<p class="text-[11px] text-gray-500 mt-2">Kuis terakhir dikerjakan: <b>${nlFmtWaktu(r.waktuKuis)}</b></p>` : ''}
+    <div class="grid grid-cols-2 gap-3 mt-3">
+      <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center"><div class="text-[10px] font-bold text-emerald-700 uppercase">Total (nilai mentah)</div><div class="text-2xl font-bold text-emerald-800">${r.total}</div></div>
+      <div class="${akhirMerah ? 'bg-red-50 border border-red-300' : 'bg-emerald-50 border border-emerald-100'} rounded-xl p-3 text-center">
+        <div class="text-[10px] font-bold ${akhirMerah ? 'text-red-700' : 'text-emerald-700'} uppercase">Nilai Akhir (KKM ${nlKkm})</div>
+        <div class="text-2xl font-bold ${akhirMerah ? 'text-red-600' : 'text-emerald-800'}">${r.akhirAda ? r.akhir : '-'}</div>
+        ${akhirMerah ? '<div class="text-[10px] font-bold text-red-600">Di bawah KKM</div>' : ''}
+      </div>
+    </div>
+    ${catatan}`;
+}
+
+function nlRiwayatHtml(riwayat) {
+  if (!riwayat.length) return '<p class="text-center text-gray-400 text-xs py-6">Belum ada nilai yang tercatat.</p>';
+  return `
+  <div class="overflow-x-auto"><table class="w-full text-xs border-collapse">
+    <thead><tr>
+      <th class="nl-th" style="text-align:left">Waktu</th><th class="nl-th" style="text-align:left">Keterangan</th>
+      <th class="nl-th">Jenis</th><th class="nl-th">Score</th><th class="nl-th">Benar / Soal</th><th class="nl-th">Salah</th>
+    </tr></thead>
+    <tbody>${riwayat.map(r => `
+      <tr>
+        <td class="nl-td whitespace-nowrap" style="text-align:left">${nlFmtWaktu(r.waktu)}</td>
+        <td class="nl-td" style="text-align:left">${nlEsc(r.judul)} <span class="text-[10px] text-gray-400">(${r.sumber})</span></td>
+        <td class="nl-td">${nlEsc(nlJ(r.jenis))}</td>
+               <td class="nl-td font-bold ${((r.jenis === 'Harian' || r.jenis === 'Analisa') && r.score < nlKkm) ? 'text-red-600' : ''}">${r.score}</td>
+        <td class="nl-td">${r.jenis === 'Score' ? (r.total ? 'dari ' + r.total : '-') : (r.total ? r.benar + ' dari ' + r.total : '-')}</td>
+        <td class="nl-td">${r.jenis !== 'Score' && r.total ? r.salah : '-'}</td>
+      </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+// ---- Rincian benar / salah per soal (dari Google Form) ----
+function nlRincianHtml(list) {
+  if (!list || !list.length) {
+    return '<p class="text-center text-gray-400 text-xs py-4">Rincian benar/salah per soal belum tersedia.</p>';
+  }
+  const warna = { benar: 'bg-emerald-100 text-emerald-700', salah: 'bg-red-100 text-red-700', sebagian: 'bg-amber-100 text-amber-700' };
+  const teks = { benar: 'Benar', salah: 'Salah', sebagian: 'Sebagian' };
+  return list.map(r => {
+    const det = r.detail || [];
+    const adaKunci = det.some(x => x.k);
+    const sebagian = det.filter(x => x.t === 'sebagian').map(x => x.n).join(', ');
+    const kotak = det.map(x =>
+      `<span title="Soal ${x.n}: ${teks[x.t] || 'Salah'}" class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${warna[x.t] || warna.salah}">${x.n}</span>`).join('');
+    const baris = det.map(x => `
+      <tr>
+        <td class="nl-td font-bold">${x.n}</td>
+        <td class="nl-td" style="text-align:left">${nlEsc(x.s || '')}${x.g ? '<div class="text-[10px] text-gray-400">' + nlEsc(x.g) + '</div>' : ''}</td>
+        <td class="nl-td" style="text-align:left">${x.j ? nlEsc(x.j) : '<span class="text-gray-300">tidak dijawab</span>'}</td>
+        ${adaKunci ? `<td class="nl-td" style="text-align:left">${nlEsc(x.k || '-')}</td>` : ''}
+        <td class="nl-td"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${warna[x.t] || warna.salah}">${teks[x.t] || 'Salah'}</span></td>
+      </tr>`).join('');
+    return `
+    <div class="border border-gray-200 rounded-xl p-3 mb-3">
+      <div class="flex justify-between items-start gap-2">
+        <div class="font-bold text-sm text-gray-800">${nlEsc(r.judul)}</div>
+        <div class="text-[10px] text-gray-400 shrink-0">${nlFmtWaktu(r.waktu)}</div>
+      </div>
+      <p class="text-xs text-gray-600 mt-1">Benar <b class="text-emerald-700">${r.benar}</b> dari ${r.total} soal &bull; Salah <b class="text-red-600">${r.salah}</b>${r.sebagian ? ' &bull; Sebagian <b class="text-amber-600">' + r.sebagian + '</b>' : ''}</p>
+      <div class="flex flex-wrap gap-1.5 mt-2">${kotak}</div>
+      <p class="text-[11px] mt-2 text-gray-600 leading-relaxed">
+        Nomor benar: <b class="text-emerald-700">${nlEsc(r.noBenar || '-')}</b><br>
+        Nomor salah: <b class="text-red-600">${nlEsc(r.noSalah || '-')}</b>${sebagian ? '<br>Nomor sebagian benar: <b class="text-amber-600">' + nlEsc(sebagian) + '</b>' : ''}
+      </p>
+      <details class="mt-2">
+        <summary class="text-[11px] font-bold text-emerald-700 cursor-pointer">Lihat per soal</summary>
+        <div class="overflow-x-auto mt-2"><table class="w-full text-xs border-collapse">
+          <thead><tr><th class="nl-th">No</th><th class="nl-th" style="text-align:left">Soal</th><th class="nl-th" style="text-align:left">Jawaban</th>${adaKunci ? '<th class="nl-th" style="text-align:left">Kunci</th>' : ''}<th class="nl-th">Hasil</th></tr></thead>
+          <tbody>${baris}</tbody>
+        </table></div>
+      </details>
+    </div>`;
+  }).join('');
+}
+
+function nlDetailSiswa(nisn) {
+  const r = nlRentang();
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (!res.success) { Swal.fire('Gagal', res.message, 'error'); return; }
+      showModal(`
+      <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div class="bg-gradient-to-r from-emerald-700 to-emerald-600 p-5 text-white flex justify-between items-start">
+          <div><h3 class="font-bold text-lg">${nlEsc(res.siswa.nama)}</h3>
+            <p class="text-xs text-emerald-100 mt-0.5">NISN ${nlEsc(res.siswa.nisn)} &bull; Kelas ${nlEsc(res.siswa.kelas)}</p></div>
+          <button onclick="closeModal()" class="text-white/80 hover:text-white"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="p-5 max-h-[70vh] overflow-y-auto">
+          ${nlRingkasanHtml(res.ringkasan)}
+          <h4 class="font-bold text-sm text-gray-700 mt-5 mb-2">Rincian Soal (Benar / Salah)</h4>
+          ${nlRincianHtml(res.rincian)}
+          <h4 class="font-bold text-sm text-gray-700 mt-5 mb-2">Riwayat Nilai</h4>
+          ${nlRiwayatHtml(res.riwayat)}
+        </div>
+      </div>`);
+    })
+        .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .getDetailNilaiSiswa(nlToken(), nisn, r.mulai, r.akhir);
+}
+
+// ---- Input nilai manual satu kelas ----
+function nlBukaInputNilai() {
+  const kelas = document.getElementById('nlRekapKelas').value;
+  if (!kelas) { Swal.fire('Pilih kelas dulu', 'Pilih satu kelas di filter, lalu klik Input Nilai.', 'info'); return; }
+  showLoading();
+  google.script.run
+    .withSuccessHandler(list => {
+      hideLoading();
+      if (!list || !list.length) { Swal.fire('Kosong', 'Tidak ada siswa di kelas ini.', 'info'); return; }
+      showModal(`
+      <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+          <div><h3 class="font-bold text-gray-800">Input Nilai &mdash; ${nlEsc(kelas)}</h3>
+            <p class="text-xs text-gray-500">Kosongkan baris siswa yang belum punya nilai.</p></div>
+          <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="p-5">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+            <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Jenis nilai</label>
+              <select id="nlMJenis" class="w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5">
+                ${NL_JENIS.map(j => `<option value="${j}" ${j === 'Refleksi' ? 'selected' : ''}>${NL_LABEL[j]}</option>`).join('')}
+              </select></div>
+            <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Keterangan</label>
+              <input id="nlMKet" type="text" placeholder="cth: Ulangan Bab 2" class="w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5"></div>
+          </div>
+          <div class="border border-gray-100 rounded-xl overflow-y-auto" style="max-height:46vh;">
+            <table class="w-full text-xs">
+              <thead class="sticky top-0"><tr><th class="nl-th w-10">No</th><th class="nl-th" style="text-align:left">Nama</th><th class="nl-th w-28">Nilai (0&ndash;100)</th></tr></thead>
+              <tbody>${list.map((s, i) => `
+                <tr><td class="nl-td text-gray-400">${i + 1}</td>
+                <td class="nl-td" style="text-align:left">${nlEsc(s.nama)}</td>
+                <td class="nl-td"><input type="number" min="0" max="100" step="0.1" data-nisn="${nlEsc(s.nisn)}" class="nl-m-in w-full border border-gray-200 rounded-lg px-2 py-1.5 text-center"></td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="flex justify-end gap-2 mt-4">
+            <button onclick="closeModal()" class="btn-secondary px-5 py-2.5 rounded-xl text-sm">Batal</button>
+            <button onclick="nlSimpanInputNilai()" class="btn-primary px-6 py-2.5 rounded-xl text-sm"><i class="fas fa-save mr-1"></i> Simpan Nilai</button>
+          </div>
+        </div>
+      </div>`);
+    })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .getSiswaByKelas(kelas);
+}
+
+function nlSimpanInputNilai() {
+  const jenis = document.getElementById('nlMJenis').value;
+  const ket = document.getElementById('nlMKet').value.trim();
+  const list = [];
+  document.querySelectorAll('.nl-m-in').forEach(inp => {
+    if (inp.value !== '') list.push({ nisn: inp.getAttribute('data-nisn'), nilai: inp.value });
+  });
+  if (!list.length) { Swal.fire('Belum ada nilai', 'Isi nilai minimal untuk satu siswa.', 'info'); return; }
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.success) { closeModal(); Swal.fire({ icon: 'success', title: 'Tersimpan', text: res.message, timer: 1800, showConfirmButton: false }); nlLoadRekap(); }
+      else Swal.fire('Gagal', res.message, 'error');
+    })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .nilaiManualSimpanBatch(nlToken(), jenis, ket, list);
+}
+
+// ============================================================================
+// PENGATURAN BOBOT & KKM (guru / admin)
+// ============================================================================
+function nlBukaPengaturan() {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (!res.success) { Swal.fire('Gagal', res.message, 'error'); return; }
+      nlBobot = res.bobot; nlKkm = Number(res.kkm); nlMode = res.mode;
+      const p = j => Math.round((res.bobot[j] || 0) * 1000) / 10;
+      const inp = 'w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5 text-center font-bold';
+      const lbl = 'block text-[10px] font-bold text-gray-500 uppercase mb-1';
+      showModal(`
+      <div class="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-lg mx-auto">
+        <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+          <div><h3 class="font-bold text-gray-800">Pengaturan Bobot &amp; KKM</h3>
+            <p class="text-xs text-gray-500">Berlaku untuk semua kelas. Rekap langsung dihitung ulang.</p></div>
+          <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="p-5">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="font-bold text-sm text-gray-700">Bobot Nilai Akhir</h4>
+            <span id="nlPTotal" class="text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-700">Total: 100%</span>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="${lbl}">Pemahaman &amp; Pengetahuan (%)</label>
+              <input id="nlPBHarian" type="number" min="0" max="100" step="0.1" value="${p('Harian')}" oninput="nlHitungTotalBobot()" class="${inp}"></div>
+            <div><label class="${lbl}">Analisa (%)</label>
+              <input id="nlPBAnalisa" type="number" min="0" max="100" step="0.1" value="${p('Analisa')}" oninput="nlHitungTotalBobot()" class="${inp}"></div>
+            <div><label class="${lbl}">Disiplin (%)</label>
+              <input id="nlPBDisiplin" type="number" min="0" max="100" step="0.1" value="${p('Disiplin')}" oninput="nlHitungTotalBobot()" class="${inp}"></div>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-1">Total harus tepat 100%. Bobot 0% berarti komponen itu tidak diwajibkan dan tidak dihitung.</p>
+
+          <h4 class="font-bold text-sm text-gray-700 mt-5 mb-2">KKM</h4>
+          <div class="grid grid-cols-2 gap-3 items-end">
+            <div><label class="${lbl}">Batas KKM (0–100)</label>
+              <input id="nlPKkm" type="number" min="0" max="100" step="0.1" value="${nlKkm}" class="${inp}"></div>
+            <p class="text-[11px] text-red-600 leading-snug">Nilai di bawah KKM otomatis ditandai <b>merah</b> (Pemahaman, Analisa, Nilai Akhir).</p>
+          </div>
+
+          <h4 class="font-bold text-sm text-gray-700 mt-5 mb-2">Jika ada komponen yang belum terisi</h4>
+          <select id="nlPMode" class="w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5">
+            <option value="lengkap" ${res.mode === 'lengkap' ? 'selected' : ''}>Nilai Akhir dikosongkan sampai semua komponen terisi (disarankan)</option>
+            <option value="nol" ${res.mode === 'nol' ? 'selected' : ''}>Komponen yang kosong dianggap 0</option>
+            <option value="proporsional" ${res.mode === 'proporsional' ? 'selected' : ''}>Komponen kosong diabaikan, bobot dihitung ulang</option>
+          </select>
+
+          <div class="flex justify-between gap-2 mt-5 pt-4 border-t border-gray-100">
+            <button onclick="nlResetPengaturan()" class="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-500 bg-gray-100 hover:bg-gray-200"><i class="fas fa-undo mr-1"></i> Default 45/45/10</button>
+            <div class="flex gap-2">
+              <button onclick="closeModal()" class="btn-secondary px-5 py-2.5 rounded-xl text-sm">Batal</button>
+              <button onclick="nlSimpanPengaturan()" id="nlBtnSimpanPeng" class="btn-primary px-6 py-2.5 rounded-xl text-sm"><i class="fas fa-save mr-1"></i> Simpan</button>
+            </div>
+          </div>
+        </div>
+      </div>`);
+      nlHitungTotalBobot();
+    })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .nilaiPengaturanGet(nlToken());
+}
+
+function nlHitungTotalBobot() {
+  const v = id => parseFloat(document.getElementById(id).value) || 0;
+  const t = Math.round((v('nlPBHarian') + v('nlPBAnalisa') + v('nlPBDisiplin')) * 100) / 100;
+  const el = document.getElementById('nlPTotal');
+  el.textContent = 'Total: ' + t + '%';
+  el.className = 'text-xs font-bold px-3 py-1 rounded-full ' +
+    (Math.abs(t - 100) < 0.01 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700');
+  return t;
+}
+
+function nlResetPengaturan() {
+  document.getElementById('nlPBHarian').value = 45;
+  document.getElementById('nlPBAnalisa').value = 45;
+  document.getElementById('nlPBDisiplin').value = 10;
+  document.getElementById('nlPKkm').value = 75;
+  document.getElementById('nlPMode').value = 'lengkap';
+  nlHitungTotalBobot();
+}
+
+function nlSimpanPengaturan() {
+  const total = nlHitungTotalBobot();
+  if (Math.abs(total - 100) > 0.01) {
+    Swal.fire('Total bobot belum 100%', 'Sekarang ' + total + '%. Sesuaikan dulu agar totalnya tepat 100%.', 'warning');
+    return;
+  }
+  const payload = {
+    harian: document.getElementById('nlPBHarian').value,
+    analisa: document.getElementById('nlPBAnalisa').value,
+    disiplin: document.getElementById('nlPBDisiplin').value,
+    kkm: document.getElementById('nlPKkm').value,
+    mode: document.getElementById('nlPMode').value
+  };
+  const btn = document.getElementById('nlBtnSimpanPeng');
+  btn.disabled = true;
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      if (!res.success) { Swal.fire('Belum bisa disimpan', res.message, 'warning'); return; }
+      nlBobot = res.bobot; nlKkm = Number(res.kkm); nlMode = res.mode;
+      closeModal();
+      Swal.fire({ icon: 'success', title: 'Tersimpan', text: res.message, timer: 2200, showConfirmButton: false });
+      nlLoadRekap();
+    })
+    .withFailureHandler(err => { btn.disabled = false; Swal.fire('Error', String(err.message || err), 'error'); })
+    .nilaiPengaturanSimpan(nlToken(), payload);
+}
+
+// ============================================================================
+// KUIS — GURU / ADMIN
+// ============================================================================
+function loadKuisGuru() {
+  nlOpen('view-kuis-guru', 'Kuis Online', 'Kuis Online');
+  nlLoadKuisGuru();
+}
+
+function nlLoadKuisGuru() {
+  const body = document.getElementById('nlKuisGuruBody');
+  body.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-gray-400"><i class="fas fa-circle-notch fa-spin mr-2"></i>Memuat...</td></tr>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { body.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-red-500">${nlEsc(res.message)}</td></tr>`; return; }
+      if (!res.data.length) { body.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-gray-400">Belum ada kuis. Klik Buat Kuis untuk mulai.</td></tr>'; return; }
+      body.innerHTML = res.data.map(k => {
+        const aktif = k.status === 'Aktif';
+        return `
+        <tr class="hover:bg-gray-50">
+          <td class="nl-td" style="text-align:left"><div class="font-bold text-gray-800">${nlEsc(k.judul)}</div><div class="text-[10px] text-gray-400">${nlFmtWaktu(k.tanggal)}${k.durasi ? ' &bull; ' + k.durasi + ' menit' : ''}</div></td>
+          <td class="nl-td">${nlEsc(k.mapel || '-')}</td>
+          <td class="nl-td"><span class="bg-gray-100 px-2 py-0.5 rounded text-[10px] font-bold">${nlEsc(k.kelas)}</span></td>
+          <td class="nl-td"><span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold">${nlEsc(nlJ(k.jenis))}</span></td>
+          <td class="nl-td">${k.jumlahSoal}</td>
+          <td class="nl-td font-bold">${k.dikerjakan}</td>
+          <td class="nl-td"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${aktif ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}">${aktif ? 'Aktif' : 'Ditutup'}</span></td>
+          <td class="nl-td whitespace-nowrap">
+            <button onclick="nlLihatHasilKuis('${k.id}')" class="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100" title="Lihat hasil"><i class="fas fa-list-check"></i></button>
+            <button onclick="nlToggleKuis('${k.id}','${aktif ? 'Tutup' : 'Aktif'}')" class="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100" title="${aktif ? 'Tutup kuis' : 'Buka kuis'}"><i class="fas ${aktif ? 'fa-lock' : 'fa-lock-open'}"></i></button>
+            <button onclick="nlHapusKuis('${k.id}')" class="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100" title="Hapus"><i class="fas fa-trash"></i></button>
+          </td>
+        </tr>`;
+      }).join('');
+    })
+    .withFailureHandler(err => { body.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-red-500">Gagal: ${nlEsc(err.message || err)}</td></tr>`; })
+    .kuisListGuru(nlToken());
+}
+
+function nlToggleKuis(id, status) {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => { hideLoading(); if (res.success) { showAlert('success', res.message); nlLoadKuisGuru(); } else Swal.fire('Gagal', res.message, 'error'); })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .kuisSetStatus(nlToken(), id, status);
+}
+
+function nlHapusKuis(id) {
+  Swal.fire({
+    title: 'Hapus kuis ini?', text: 'Nilai siswa yang sudah masuk tetap tersimpan di rekap.',
+    icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Ya, hapus', cancelButtonText: 'Batal'
+  }).then(r => {
+    if (!r.isConfirmed) return;
+    showLoading();
+    google.script.run
+      .withSuccessHandler(res => { hideLoading(); if (res.success) { showAlert('success', res.message); nlLoadKuisGuru(); } else Swal.fire('Gagal', res.message, 'error'); })
+      .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+      .kuisHapus(nlToken(), id);
+  });
+}
+
+function nlLihatHasilKuis(id) {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (!res.success) { Swal.fire('Gagal', res.message, 'error'); return; }
+      const rows = res.data.length ? res.data.map((d, i) => `
+        <tr><td class="nl-td text-gray-400">${i + 1}</td>
+        <td class="nl-td" style="text-align:left">${nlEsc(d.nama)}</td>
+        <td class="nl-td">${nlEsc(d.kelas)}</td>
+        <td class="nl-td font-bold">${d.score}</td>
+        <td class="nl-td text-emerald-700 font-bold">${d.benar}</td>
+        <td class="nl-td text-red-600 font-bold">${d.salah}</td>
+        <td class="nl-td text-[10px] text-gray-400">${nlFmtWaktu(d.waktu)}</td></tr>`).join('')
+        : '<tr><td colspan="7" class="p-8 text-center text-gray-400">Belum ada siswa yang mengerjakan.</td></tr>';
+      showModal(`
+      <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+          <div><h3 class="font-bold text-gray-800">Hasil: ${nlEsc(res.judul)}</h3><p class="text-xs text-gray-500">${res.data.length} siswa sudah mengerjakan</p></div>
+          <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="p-4 max-h-[65vh] overflow-y-auto"><table class="w-full text-xs">
+          <thead><tr><th class="nl-th w-10">No</th><th class="nl-th" style="text-align:left">Nama</th><th class="nl-th">Kelas</th><th class="nl-th">Score</th><th class="nl-th">Benar</th><th class="nl-th">Salah</th><th class="nl-th">Waktu</th></tr></thead>
+          <tbody>${rows}</tbody></table></div>
+      </div>`);
+    })
+    .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+    .kuisHasilList(nlToken(), id);
+}
+
+// ---- Pembuat kuis ----
+function nlBukaBuatKuis() {
+  nlSoalDraft = [nlSoalKosong()];
+  const kelasOpts = nlKelasOptions();
+  const boleh_semua = currentUser.role === 'admin';
+  showModal(`
+  <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+    <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+      <div><h3 class="font-bold text-gray-800">Buat Kuis Baru</h3><p class="text-xs text-gray-500">Kuis langsung aktif untuk siswa begitu disimpan.</p></div>
+      <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="p-5 max-h-[72vh] overflow-y-auto">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <div class="sm:col-span-2"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Judul kuis</label>
+          <input id="nlBJudul" type="text" placeholder="cth: Kuis Pecahan Bab 3" class="w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5"></div>
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Mata pelajaran</label>
+          <input id="nlBMapel" type="text" placeholder="cth: Matematika" class="w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5"></div>
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Kelas</label>
+          <select id="nlBKelas" class="w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5">
+            <option value="">-- Pilih kelas --</option>
+            ${boleh_semua ? '<option value="SEMUA">Semua Kelas</option>' : ''}
+            ${kelasOpts.map(k => `<option value="${nlEsc(k)}">${nlEsc(k)}</option>`).join('')}
+          </select></div>
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Masuk ke kolom nilai</label>
+          <select id="nlBJenis" class="w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5">
+            ${NL_JENIS.map(j => `<option value="${j}">${NL_LABEL[j]}</option>`).join('')}
+          </select></div>
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Durasi (menit, 0 = tanpa batas)</label>
+          <input id="nlBDurasi" type="number" min="0" value="0" class="w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5"></div>
+      </div>
+
+      <div class="flex items-center justify-between mt-5 mb-2">
+        <h4 class="font-bold text-sm text-gray-700">Soal pilihan ganda</h4>
+        <div class="flex gap-2">
+          <button onclick="nlBukaTempelSoal()" class="btn-secondary px-3 py-1.5 rounded-lg text-xs"><i class="fas fa-paste mr-1"></i> Tempel soal</button>
+          <button onclick="nlTambahSoal()" class="btn-secondary px-3 py-1.5 rounded-lg text-xs"><i class="fas fa-plus mr-1"></i> Tambah soal</button>
+        </div>
+      </div>
+      <div id="nlBSoal"></div>
+
+      <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+        <button onclick="closeModal()" class="btn-secondary px-5 py-2.5 rounded-xl text-sm">Batal</button>
+        <button onclick="nlSimpanKuis()" id="nlBtnSimpanKuis" class="btn-primary px-6 py-2.5 rounded-xl text-sm"><i class="fas fa-save mr-1"></i> Simpan &amp; Aktifkan</button>
+      </div>
+    </div>
+  </div>`);
+  nlRenderSoalDraft();
+}
+
+function nlSoalKosong() { return { q: '', opsi: ['', '', '', ''], kunci: -1, penjelasan: '' }; }
+
+function nlRenderSoalDraft() {
+  const box = document.getElementById('nlBSoal');
+  if (!box) return;
+  box.innerHTML = nlSoalDraft.map((s, i) => `
+    <div class="border border-gray-200 rounded-xl p-3 mb-3 bg-gray-50/60">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-xs font-bold text-gray-600">Soal ${i + 1}</span>
+        <button onclick="nlHapusSoal(${i})" class="text-red-400 hover:text-red-600 text-xs"><i class="fas fa-trash mr-1"></i>Hapus</button>
+      </div>
+      <textarea rows="2" placeholder="Tulis pertanyaan..." oninput="nlSoalDraft[${i}].q=this.value" class="w-full border border-gray-200 rounded-lg p-2 text-sm bg-white">${nlEsc(s.q)}</textarea>
+      <p class="text-[10px] text-gray-400 mt-2 mb-1">Pilih bulatan di kiri untuk menandai kunci jawaban.</p>
+      ${['A', 'B', 'C', 'D'].map((l, j) => `
+        <div class="flex items-center gap-2 mb-1.5">
+          <input type="radio" name="nlk${i}" ${s.kunci === j ? 'checked' : ''} onchange="nlSoalDraft[${i}].kunci=${j}" class="accent-emerald-600">
+          <span class="text-xs font-bold text-gray-500 w-4">${l}</span>
+          <input type="text" value="${nlEsc(s.opsi[j])}" placeholder="Pilihan ${l}" oninput="nlSoalDraft[${i}].opsi[${j}]=this.value" class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+        </div>`).join('')}
+      <input type="text" value="${nlEsc(s.penjelasan)}" placeholder="Penjelasan jawaban (opsional, tampil ke siswa setelah selesai)" oninput="nlSoalDraft[${i}].penjelasan=this.value" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white mt-1">
+    </div>`).join('') || '<p class="text-center text-xs text-gray-400 py-4">Belum ada soal.</p>';
+}
+
+function nlTambahSoal() { nlSoalDraft.push(nlSoalKosong()); nlRenderSoalDraft(); }
+function nlHapusSoal(i) { nlSoalDraft.splice(i, 1); nlRenderSoalDraft(); }
+
+// Tempel soal massal. Format tiap soal dipisah baris kosong:
+// 1. Pertanyaan?
+// A. pilihan
+// B. pilihan
+// Jawaban: B
+// Penjelasan: (opsional)
+function nlParseSoal(text) {
+  const out = [];
+  text.replace(/\r/g, '').split(/\n\s*\n/).forEach(block => {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+    const s = nlSoalKosong();
+    lines.forEach(l => {
+      let m;
+      if ((m = l.match(/^(jawaban|kunci)\s*[:=]\s*([A-Da-d])/i))) s.kunci = 'ABCD'.indexOf(m[2].toUpperCase());
+      else if ((m = l.match(/^penjelasan\s*[:=]\s*(.+)$/i))) s.penjelasan = m[1];
+      else if ((m = l.match(/^([A-Da-d])[\.\)]\s*(.+)$/))) s.opsi['ABCD'.indexOf(m[1].toUpperCase())] = m[2];
+      else s.q += (s.q ? ' ' : '') + l.replace(/^\d+[\.\)]\s*/, '');
+    });
+    if (s.q && s.kunci >= 0) out.push(s);
+  });
+  return out;
+}
+
+function nlBukaTempelSoal() {
+  Swal.fire({
+    title: 'Tempel soal sekaligus',
+    html: `<p style="font-size:12px;color:#6b7280;text-align:left;margin-bottom:8px">Pisahkan tiap soal dengan satu baris kosong. Contoh:</p>
+      <pre style="text-align:left;font-size:11px;background:#f3f4f6;padding:8px;border-radius:8px;margin-bottom:8px">1. Berapa 2 + 3?
+A. 4
+B. 5
+C. 6
+D. 7
+Jawaban: B
+Penjelasan: 2 ditambah 3 sama dengan 5.</pre>
+      <textarea id="nlTempelArea" class="swal2-textarea" style="height:180px;font-size:12px" placeholder="Tempel soal di sini..."></textarea>`,
+    showCancelButton: true, confirmButtonText: 'Tambahkan', cancelButtonText: 'Batal', confirmButtonColor: '#1B5E20',
+    preConfirm: () => {
+      const list = nlParseSoal(document.getElementById('nlTempelArea').value);
+      if (!list.length) { Swal.showValidationMessage('Tidak ada soal yang terbaca. Pastikan tiap soal punya baris "Jawaban: X".'); return false; }
+      return list;
+    }
+  }).then(r => {
+    if (!r.isConfirmed) return;
+    // buang soal pertama bila masih kosong
+    if (nlSoalDraft.length === 1 && !nlSoalDraft[0].q && nlSoalDraft[0].kunci < 0) nlSoalDraft = [];
+    nlSoalDraft = nlSoalDraft.concat(r.value);
+    nlRenderSoalDraft();
+    showAlert('success', r.value.length + ' soal ditambahkan.');
+  });
+}
+
+function nlSimpanKuis() {
+  const payload = {
+    judul: document.getElementById('nlBJudul').value.trim(),
+    mapel: document.getElementById('nlBMapel').value.trim(),
+    kelas: document.getElementById('nlBKelas').value,
+    jenis: document.getElementById('nlBJenis').value,
+    durasi: document.getElementById('nlBDurasi').value,
+    soal: nlSoalDraft
+  };
+  const btn = document.getElementById('nlBtnSimpanKuis');
+  btn.disabled = true;
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      if (res.success) { closeModal(); Swal.fire({ icon: 'success', title: 'Kuis aktif', text: res.message, timer: 2200, showConfirmButton: false }); nlLoadKuisGuru(); }
+      else Swal.fire('Belum bisa disimpan', res.message, 'warning');
+    })
+    .withFailureHandler(err => { btn.disabled = false; Swal.fire('Error', String(err.message || err), 'error'); })
+    .kuisBuat(nlToken(), payload);
+}
+
+// ============================================================================
+// KUIS — SISWA
+// ============================================================================
+function loadKuisSiswa() {
+  nlOpen('view-kuis-siswa', 'Kuis Saya', 'Kuis Saya');
+  nlLoadKuisSiswa();
+}
+
+function nlLoadKuisSiswa() {
+  const box = document.getElementById('nlKuisSiswaList');
+  box.innerHTML = '<div class="col-span-full p-10 text-center text-gray-400"><i class="fas fa-circle-notch fa-spin mr-2"></i>Memuat kuis...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { box.innerHTML = `<div class="col-span-full p-10 text-center text-red-500">${nlEsc(res.message)}</div>`; return; }
+      if (!res.data.length) { box.innerHTML = '<div class="col-span-full page-card p-10 text-center text-gray-400">Belum ada kuis untuk kelasmu.</div>'; return; }
+      box.innerHTML = res.data.map(k => {
+        const h = k.hasil;
+        const aksi = h
+          ? `<div class="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl p-3 mt-3">
+               <div><div class="text-[10px] font-bold text-emerald-700 uppercase">Score kamu</div><div class="text-2xl font-bold text-emerald-800">${h.score}</div></div>
+               <div class="text-right text-xs text-gray-600">Benar <b class="text-emerald-700">${h.benar}</b> dari ${h.total} soal<br>Salah <b class="text-red-600">${h.salah}</b></div>
+             </div>`
+          : `<button onclick="nlMulaiKuis('${k.id}','${nlEsc(k.judul).replace(/'/g, '')}',${k.durasi || 0},${k.jumlahSoal})" class="btn-primary w-full py-2.5 rounded-xl text-sm mt-3"><i class="fas fa-play mr-1"></i> Mulai Kerjakan</button>`;
+        return `
+        <div class="page-card p-4">
+          <div class="flex justify-between items-start gap-2">
+            <div><h4 class="font-bold text-gray-800">${nlEsc(k.judul)}</h4><p class="text-xs text-gray-500">${nlEsc(k.mapel || 'Umum')}</p></div>
+            <span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold shrink-0">${nlEsc(nlJ(k.jenis))}</span>
+          </div>
+          <p class="text-xs text-gray-500 mt-2"><i class="far fa-circle-question mr-1"></i>${k.jumlahSoal} soal${k.durasi ? ' &bull; <i class="far fa-clock ml-1 mr-1"></i>' + k.durasi + ' menit' : ''}</p>
+          ${aksi}
+        </div>`;
+      }).join('');
+    })
+    .withFailureHandler(err => { box.innerHTML = `<div class="col-span-full p-10 text-center text-red-500">Gagal: ${nlEsc(err.message || err)}</div>`; })
+    .kuisListSiswa(nlToken());
+}
+
+function nlMulaiKuis(id, judul, durasi, jml) {
+  Swal.fire({
+    title: 'Mulai kuis?',
+    html: `<b>${judul}</b><br><span style="font-size:13px;color:#6b7280">${jml} soal${durasi ? ' &bull; waktu ' + durasi + ' menit' : ''}.<br>Kuis hanya bisa dikerjakan satu kali.</span>`,
+    icon: 'question', showCancelButton: true, confirmButtonColor: '#1B5E20', confirmButtonText: 'Mulai', cancelButtonText: 'Nanti dulu'
+  }).then(r => {
+    if (!r.isConfirmed) return;
+    showLoading();
+    google.script.run
+      .withSuccessHandler(res => {
+        hideLoading();
+        if (!res.success) { Swal.fire('Tidak bisa dimulai', res.message, 'warning'); nlLoadKuisSiswa(); return; }
+        nlTampilkanSoal(res);
+      })
+      .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+      .kuisAmbilSoal(nlToken(), id);
+  });
+}
+
+function nlTampilkanSoal(kuis) {
+  nlKuisAktif = { id: kuis.id, soal: kuis.soal, jawaban: kuis.soal.map(() => -1), durasi: Number(kuis.durasi) || 0 };
+  nlKuisSelesai = false;
+  nlOpen('view-kuis-kerjakan', 'Kuis Saya', 'Mengerjakan Kuis');
+
+  document.getElementById('nlKJudul').textContent = kuis.judul;
+  document.getElementById('nlKMeta').textContent = (kuis.mapel || 'Umum') + ' • ' + kuis.soal.length + ' soal';
+  document.getElementById('nlKAksi').classList.remove('hidden');
+  document.getElementById('nlKHasil').classList.add('hidden');
+  document.getElementById('nlKSoal').classList.remove('hidden');
+
+  document.getElementById('nlKSoal').innerHTML = kuis.soal.map((s, i) => `
+    <div class="page-card p-4 mb-3">
+      <p class="text-sm font-semibold text-gray-800 mb-3"><span class="text-emerald-700">${i + 1}.</span> ${nlEsc(s.q)}</p>
+      <div class="space-y-2">
+        ${s.opsi.map((o, j) => o ? `
+          <label class="nl-opt" id="nlo-${i}-${j}" onclick="nlPilih(${i},${j})">
+            <input type="radio" name="nlq${i}" class="mt-0.5 accent-emerald-600">
+            <span class="text-sm text-gray-700"><b class="text-gray-500 mr-1">${'ABCD'[j]}.</b>${nlEsc(o)}</span>
+          </label>` : '').join('')}
+      </div>
+    </div>`).join('');
+
+  // Timer
+  clearInterval(nlKuisTimer);
+  const tEl = document.getElementById('nlKTimer');
+  if (nlKuisAktif.durasi > 0) {
+    let sisa = nlKuisAktif.durasi * 60;
+    tEl.classList.remove('hidden');
+    const tick = () => {
+      const m = String(Math.floor(sisa / 60)).padStart(2, '0'), s = String(sisa % 60).padStart(2, '0');
+      tEl.textContent = m + ':' + s;
+      if (sisa <= 60) { tEl.className = 'shrink-0 text-sm font-bold text-red-700 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg'; }
+      if (sisa <= 0) { clearInterval(nlKuisTimer); nlKirimJawaban(true); return; }
+      sisa--;
+    };
+    tick();
+    nlKuisTimer = setInterval(tick, 1000);
+  } else {
+    tEl.classList.add('hidden');
+  }
+}
+
+function nlPilih(i, j) {
+  if (!nlKuisAktif || nlKuisSelesai) return;
+  nlKuisAktif.jawaban[i] = j;
+  for (let x = 0; x < 4; x++) {
+    const el = document.getElementById(`nlo-${i}-${x}`);
+    if (el) el.classList.toggle('nl-picked', x === j);
+  }
+}
+
+function nlBatalKerjakan() {
+  Swal.fire({
+    title: 'Keluar dari kuis?', text: 'Jawaban yang sudah dipilih belum terkirim. Waktu tetap berjalan.',
+    icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Ya, keluar', cancelButtonText: 'Lanjut mengerjakan'
+  }).then(r => {
+    if (!r.isConfirmed) return;
+    clearInterval(nlKuisTimer);
+    nlKuisAktif = null;
+    loadKuisSiswa();
+  });
+}
+
+function nlKirimJawaban(otomatis) {
+  if (!nlKuisAktif || nlKuisSelesai) return;
+  const kosong = nlKuisAktif.jawaban.filter(x => x < 0).length;
+
+  const kirim = () => {
+    nlKuisSelesai = true;
+    clearInterval(nlKuisTimer);
+    showLoading();
+    google.script.run
+      .withSuccessHandler(res => {
+        hideLoading();
+        if (!res.success) { nlKuisSelesai = false; Swal.fire('Gagal mengirim', res.message, 'error'); return; }
+        nlTampilkanHasil(res);
+      })
+      .withFailureHandler(err => { hideLoading(); nlKuisSelesai = false; Swal.fire('Error', String(err.message || err), 'error'); })
+      .kuisKirimJawaban(nlToken(), nlKuisAktif.id, nlKuisAktif.jawaban);
+  };
+
+  if (otomatis) { kirim(); return; }
+  Swal.fire({
+    title: 'Kirim jawaban?',
+    text: kosong ? kosong + ' soal belum dijawab dan akan dihitung salah.' : 'Semua soal sudah dijawab.',
+    icon: kosong ? 'warning' : 'question', showCancelButton: true, confirmButtonColor: '#1B5E20', confirmButtonText: 'Kirim', cancelButtonText: 'Periksa lagi'
+  }).then(r => { if (r.isConfirmed) kirim(); });
+}
+
+function nlTampilkanHasil(res) {
+  document.getElementById('nlKSoal').classList.add('hidden');
+  document.getElementById('nlKAksi').classList.add('hidden');
+  document.getElementById('nlKTimer').classList.add('hidden');
+  const box = document.getElementById('nlKHasil');
+  box.classList.remove('hidden');
+
+  const review = res.review.map((r, i) => `
+    <div class="page-card p-4 mb-3 border-l-4 ${r.benar ? 'border-l-emerald-500' : 'border-l-red-400'}">
+      <div class="flex justify-between items-start gap-2 mb-2">
+        <p class="text-sm font-semibold text-gray-800"><span class="${r.benar ? 'text-emerald-700' : 'text-red-600'}">${i + 1}.</span> ${nlEsc(r.q)}</p>
+        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${r.benar ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.benar ? 'Benar' : 'Salah'}</span>
+      </div>
+      <p class="text-xs text-gray-600">Jawabanmu: <b>${r.jawaban >= 0 ? 'ABCD'[r.jawaban] + '. ' + nlEsc(r.opsi[r.jawaban]) : 'Tidak dijawab'}</b></p>
+      ${r.benar ? '' : `<p class="text-xs text-emerald-700 mt-0.5">Jawaban benar: <b>${'ABCD'[r.kunci]}. ${nlEsc(r.opsi[r.kunci])}</b></p>`}
+      ${r.penjelasan ? `<p class="text-xs text-gray-500 mt-2 bg-gray-50 rounded-lg p-2"><i class="far fa-lightbulb mr-1 text-amber-500"></i>${nlEsc(r.penjelasan)}</p>` : ''}
+    </div>`).join('');
+
+  box.innerHTML = `
+    <div class="page-card p-6 text-center mb-4">
+      <p class="text-xs text-gray-500">${nlEsc(res.judul)} &bull; masuk ke Nilai ${nlEsc(nlJ(res.jenis))}</p>
+      <div class="text-5xl font-bold text-emerald-700 my-2">${res.score}</div>
+      <p class="text-sm text-gray-600">Benar <b class="text-emerald-700">${res.benar}</b> dari ${res.total} soal &bull; Salah <b class="text-red-600">${res.salah}</b></p>
+      <button onclick="loadKuisSiswa()" class="btn-primary px-6 py-2.5 rounded-xl text-sm mt-4">Kembali ke daftar kuis</button>
+    </div>
+    <h4 class="font-bold text-sm text-gray-700 mb-2">Pembahasan</h4>
+    ${review}`;
+  nlKuisAktif = null;
+}
+
+// ============================================================================
+// NILAI SAYA (siswa)
+// ============================================================================
+function loadNilaiSaya() {
+  nlOpen('view-nilai-saya', 'Nilai Saya', 'Nilai Saya');
+  const box = document.getElementById('nlNilaiSayaBody');
+  box.innerHTML = '<div class="p-10 text-center text-gray-400"><i class="fas fa-circle-notch fa-spin mr-2"></i>Memuat nilai...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { box.innerHTML = `<div class="p-10 text-center text-red-500">${nlEsc(res.message)}</div>`; return; }
+      box.innerHTML = `
+        <div class="page-card p-5 mb-4">
+          <h3 class="font-bold text-gray-800 text-lg">${nlEsc(res.siswa.nama)}</h3>
+          <p class="text-xs text-gray-500 mb-4">Kelas ${nlEsc(res.siswa.kelas)}</p>
+          ${nlRingkasanHtml(res.ringkasan)}
+        </div>
+        <div class="page-card p-5 mb-4">
+          <h4 class="font-bold text-sm text-gray-700 mb-1">Rincian Soal (Benar / Salah)</h4>
+          <p class="text-[11px] text-gray-500 mb-3">Kotak hijau = jawaban benar, merah = salah, kuning = sebagian benar.</p>
+          ${nlRincianHtml(res.rincian)}
+        </div>
+        <div class="page-card p-5">
+          <h4 class="font-bold text-sm text-gray-700 mb-2">Riwayat Nilai</h4>
+          ${nlRiwayatHtml(res.riwayat)}
+        </div>`;
+    })
+    .withFailureHandler(err => { box.innerHTML = `<div class="p-10 text-center text-red-500">Gagal: ${nlEsc(err.message || err)}</div>`; })
+    .getDetailNilaiSiswa(nlToken(), null);
+}
+</script>

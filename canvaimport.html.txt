@@ -1,0 +1,225 @@
+<!-- ======================================================================
+     IMPORT CSV CANVA — File HTML terpisah bernama "canvaimport"
+     Di-include dari index.html SETELAH tautan:
+         <?!= include('nilai') ?>
+         <?!= include('tautan') ?>
+         <?!= include('canvaimport') ?>
+     Menu "Import Canva" (admin/guru) ditambahkan otomatis oleh file ini.
+     ====================================================================== -->
+<script>
+let cvFiles = [];
+let cvAnalisis = null;
+let cvMode = 'forms';
+
+const CV_TIPS = {
+  forms: 'Buka <b>Canva Forms</b> → lihat respons di Canva Sheets → unduh sebagai <b>CSV</b>. Satu file berisi semua soal (satu soal = satu kolom). Pastikan formulir punya pertanyaan <b>NISN</b> dan <b>Nama</b>.',
+  quiz: 'Buka <b>elemen Kuis</b> di desain Canva → tab <b>Responses</b> → <b>Download as CSV</b>. Satu elemen kuis = satu soal = satu file, jadi pilih semua file sekaligus. Tiap file harus memuat kolom <b>NISN</b> atau <b>Nama</b> agar bisa dicocokkan ke siswa.'
+};
+
+function cvInject() {
+  const host = document.getElementById('mainContentArea');
+  if (!host || document.getElementById('view-canva-import')) return;
+  const inp = 'w-full bg-gray-50 border border-gray-200 text-sm rounded-lg p-2.5';
+  const lbl = 'block text-[10px] font-bold text-gray-500 uppercase mb-1';
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+  <div id="view-canva-import" class="view-section animate-fade-in">
+    <div class="page-card p-4 mb-4">
+      <h3 class="font-bold text-gray-800 text-lg">Import Nilai dari Canva</h3>
+      <p class="text-xs text-gray-500 mt-0.5">Unggah CSV hasil kuis Canva. Nilai dihitung di sini lalu masuk ke Rekap Nilai (cocok lewat NISN atau Nama).</p>
+    </div>
+
+    <div class="page-card p-5 mb-4">
+      <h4 class="font-bold text-sm text-gray-700 mb-3">1. Pilih sumber &amp; file</h4>
+      <div class="flex gap-2 mb-3">
+        <button id="cvBtnForms" onclick="cvSetMode('forms')" class="px-4 py-2 rounded-lg text-xs font-bold border">Canva Forms</button>
+        <button id="cvBtnQuiz" onclick="cvSetMode('quiz')" class="px-4 py-2 rounded-lg text-xs font-bold border">Elemen Kuis Canva</button>
+      </div>
+      <p id="cvTip" class="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg p-2.5 leading-relaxed mb-4"></p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="sm:col-span-2"><label class="${lbl}">Judul nilai</label>
+          <input id="cvJudul" class="${inp}" placeholder="cth: Kuis Bab 2 (Canva)"></div>
+        <div><label class="${lbl}">Kelas</label><select id="cvKelas" class="${inp}"></select></div>
+        <div><label class="${lbl}">Masuk ke kolom nilai</label>
+          <select id="cvJenis" class="${inp}">${NL_JENIS.map(j => `<option value="${j}">${NL_LABEL[j]}</option>`).join('')}</select></div>
+        <div><label class="${lbl}">Nilai maksimal di CSV (bila pakai kolom skor)</label>
+          <input id="cvMaks" type="number" min="1" value="100" class="${inp}"></div>
+        <div><label class="${lbl}">File CSV (boleh banyak)</label>
+          <input id="cvFile" type="file" accept=".csv,text/csv" multiple class="${inp}"></div>
+      </div>
+      <div class="flex justify-end mt-4">
+        <button onclick="cvBaca()" class="btn-primary px-6 py-2.5 rounded-xl text-sm"><i class="fas fa-magnifying-glass mr-1"></i> Baca File</button>
+      </div>
+    </div>
+
+    <div id="cvHasil" class="hidden"></div>
+  </div>`;
+  while (wrap.firstChild) host.appendChild(wrap.firstChild);
+}
+cvInject();
+
+// Menu: bungkus initDashboard (sama seperti tautan.html)
+(function () {
+  const asli = initDashboard;
+  initDashboard = function () {
+    asli.apply(this, arguments);
+    const menu = document.getElementById('sidebarMenu');
+    if (!menu || !currentUser) return;
+    if (currentUser.role !== 'admin' && currentUser.role !== 'guru') return;
+    const a = document.createElement('a');
+    a.setAttribute('data-name', 'Import Canva');
+    a.setAttribute('onclick', 'loadCanvaImport()');
+    a.className = 'flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 group overflow-hidden whitespace-nowrap cursor-pointer text-gray-400 hover:bg-gray-800 hover:text-white';
+    a.innerHTML = '<i class="fas fa-file-csv w-6 text-center flex-shrink-0 group-hover:scale-110 transition-transform"></i><span class="sidebar-label font-medium transition-opacity duration-300">Import Canva</span>';
+    menu.appendChild(a);
+  };
+})();
+
+function loadCanvaImport() {
+  nlOpen('view-canva-import', 'Import Canva', 'Import Nilai dari Canva');
+  const opts = nlKelasOptions();
+  const semua = currentUser.role === 'admin';
+  document.getElementById('cvKelas').innerHTML =
+    '<option value="">-- Pilih kelas --</option>' + (semua ? '<option value="SEMUA">Semua Kelas</option>' : '') +
+    opts.map(k => `<option value="${nlEsc(k)}">${nlEsc(k)}</option>`).join('');
+  document.getElementById('cvHasil').classList.add('hidden');
+  document.getElementById('cvHasil').innerHTML = '';
+  cvAnalisis = null; cvFiles = [];
+  cvSetMode(cvMode);
+}
+
+function cvSetMode(m) {
+  cvMode = m;
+  const on = 'bg-emerald-600 text-white border-emerald-600';
+  const off = 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50';
+  document.getElementById('cvBtnForms').className = 'px-4 py-2 rounded-lg text-xs font-bold border ' + (m === 'forms' ? on : off);
+  document.getElementById('cvBtnQuiz').className = 'px-4 py-2 rounded-lg text-xs font-bold border ' + (m === 'quiz' ? on : off);
+  document.getElementById('cvTip').innerHTML = CV_TIPS[m];
+}
+
+// ---- Langkah 1: baca file & analisis ----
+function cvBaca() {
+  const fl = Array.from(document.getElementById('cvFile').files || []);
+  if (!fl.length) { Swal.fire('Pilih file', 'Pilih minimal satu file CSV.', 'info'); return; }
+  showLoading();
+  Promise.all(fl.map(f => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res({ nama: f.name, text: String(r.result) });
+    r.onerror = () => rej(new Error('Gagal membaca ' + f.name));
+    r.readAsText(f, 'UTF-8');
+  }))).then(files => {
+    cvFiles = files;
+    google.script.run
+      .withSuccessHandler(res => {
+        hideLoading();
+        if (!res.success) { Swal.fire('Tidak bisa dibaca', res.message, 'warning'); return; }
+        cvAnalisis = res;
+        cvRenderHasil();
+      })
+      .withFailureHandler(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); })
+      .canvaImportAnalisis(nlToken(), files);
+  }).catch(err => { hideLoading(); Swal.fire('Error', String(err.message || err), 'error'); });
+}
+
+function cvRenderHasil() {
+  const a = cvAnalisis;
+  const box = document.getElementById('cvHasil');
+  const inp = 'w-full bg-gray-50 border border-gray-200 text-xs rounded-lg p-2';
+
+  const ringkas = a.files.map(f => {
+    const kol = [['NISN', f.kolomNisn], ['Nama', f.kolomNama], ['Kelas', f.kolomKelas], ['Waktu', f.kolomWaktu], ['Skor', f.kolomSkor]]
+      .map(x => `<span class="inline-block bg-gray-100 rounded px-2 py-0.5 mr-1 mt-1 text-[10px]">${x[0]}: <b>${x[1] ? nlEsc(x[1]) : '-'}</b></span>`).join('');
+    return `<div class="border border-gray-100 rounded-xl p-3 mb-2">
+      <div class="font-bold text-xs text-gray-800">${nlEsc(f.nama)} <span class="text-gray-400 font-normal">· ${f.baris} baris · ${f.jumlahSoal} kolom soal</span></div>${kol}</div>`;
+  }).join('');
+
+  const warn = a.peringatan.length
+    ? `<div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 mb-3 leading-relaxed">${a.peringatan.map(nlEsc).join('<br>')}</div>` : '';
+
+  const skorBox = a.adaSkor
+    ? `<label class="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-xl p-3 mb-3 cursor-pointer">
+         <input type="checkbox" id="cvPakaiSkor" checked class="mt-0.5 accent-emerald-600" onchange="cvToggleSkor()">
+         <span class="text-xs text-blue-800"><b>Pakai kolom skor dari CSV</b> (bila Canva sudah menghitung nilai). Hilangkan centang jika ingin menghitung sendiri dari jawaban benar di bawah.</span></label>` : '';
+
+  const baris = a.kolom.map((k, i) => `
+    <tr>
+      <td class="nl-td" style="text-align:left;min-width:200px">
+        <div class="font-bold text-gray-800 text-xs">${nlEsc(k.label)}</div>
+        <div class="text-[10px] text-gray-400">${nlEsc(k.file)}</div></td>
+      <td class="nl-td" style="text-align:left">${k.contoh.map((c, j) =>
+        `<button type="button" onclick="cvPakaiContoh(${i},${j})" class="inline-block bg-gray-100 hover:bg-emerald-100 rounded px-2 py-0.5 m-0.5 text-[10px] text-left" title="Klik untuk jadikan jawaban benar">${nlEsc(c.t)} <b class="text-gray-400">×${c.n}</b></button>`).join('') || '<span class="text-gray-300 text-[10px]">kosong</span>'}</td>
+      <td class="nl-td" style="min-width:180px"><input type="text" data-id="${k.id}" id="cvKunci${i}" class="cv-kunci ${inp}" placeholder="jawaban benar (kosongkan jika bukan soal)"></td>
+    </tr>`).join('');
+
+  box.innerHTML = `
+  <div class="page-card p-5 mb-4">
+    <h4 class="font-bold text-sm text-gray-700 mb-3">2. Periksa kolom yang terbaca</h4>
+    ${ringkas}${warn}
+  </div>
+  <div class="page-card p-5 mb-4" id="cvBlokKunci">
+    <h4 class="font-bold text-sm text-gray-700 mb-1">3. Tentukan jawaban benar</h4>
+    ${skorBox}
+    <div id="cvTabelKunci">
+      <p class="text-[11px] text-gray-500 mb-2">Klik salah satu jawaban contoh untuk menjadikannya kunci, atau ketik sendiri. Beberapa jawaban yang sama-sama benar dipisah tanda <b>|</b>. Kolom yang bukan soal (mis. email) biarkan kosong.</p>
+      <div class="overflow-x-auto border border-gray-100 rounded-xl" style="max-height:50vh">
+        <table class="w-full text-xs border-collapse">
+          <thead class="sticky top-0"><tr><th class="nl-th" style="text-align:left">Soal</th><th class="nl-th" style="text-align:left">Jawaban siswa (contoh)</th><th class="nl-th">Jawaban benar</th></tr></thead>
+          <tbody>${baris || '<tr><td colspan="3" class="p-6 text-center text-gray-400">Tidak ada kolom soal terdeteksi.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="flex justify-end mt-4">
+      <button onclick="cvSimpan()" id="cvBtnSimpan" class="btn-primary px-6 py-2.5 rounded-xl text-sm"><i class="fas fa-file-import mr-1"></i> Impor Nilai</button>
+    </div>
+  </div>`;
+  box.classList.remove('hidden');
+  cvToggleSkor();
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function cvToggleSkor() {
+  const cb = document.getElementById('cvPakaiSkor');
+  const t = document.getElementById('cvTabelKunci');
+  if (t) t.style.display = (cb && cb.checked) ? 'none' : '';
+}
+
+function cvPakaiContoh(i, j) {
+  const k = cvAnalisis.kolom[i];
+  const el = document.getElementById('cvKunci' + i);
+  if (k && el && k.contoh[j]) el.value = k.contoh[j].t;
+}
+
+// ---- Langkah 2: simpan ----
+function cvSimpan() {
+  const v = id => document.getElementById(id).value.trim();
+  const cb = document.getElementById('cvPakaiSkor');
+  const pakaiSkor = !!(cb && cb.checked);
+  const kunci = {};
+  document.querySelectorAll('.cv-kunci').forEach(el => { if (el.value.trim()) kunci[el.getAttribute('data-id')] = el.value.trim(); });
+
+  if (!v('cvJudul')) { Swal.fire('Judul kosong', 'Isi judul nilai terlebih dahulu.', 'info'); return; }
+  if (!v('cvKelas')) { Swal.fire('Kelas belum dipilih', 'Pilih kelas tujuan.', 'info'); return; }
+  if (!pakaiSkor && !Object.keys(kunci).length) {
+    Swal.fire('Belum ada kunci', 'Isi jawaban benar minimal untuk satu soal.', 'info'); return;
+  }
+
+  const btn = document.getElementById('cvBtnSimpan');
+  btn.disabled = true;
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading(); btn.disabled = false;
+      if (!res.success) { Swal.fire('Belum bisa diimpor', res.message, 'warning'); return; }
+      const sisa = (res.tidakCocok && res.tidakCocok.length)
+        ? `<p style="font-size:12px;color:#b45309;margin-top:8px;text-align:left">Tidak cocok dengan data siswa (cek NISN/Nama/Kelas): ${res.tidakCocok.map(nlEsc).join(', ')}</p>` : '';
+      Swal.fire({ icon: res.tidakCocok && res.tidakCocok.length ? 'warning' : 'success', title: 'Impor selesai',
+        html: `<p style="font-size:13px">${nlEsc(res.message)}</p>${sisa}` });
+    })
+    .withFailureHandler(err => { hideLoading(); btn.disabled = false; Swal.fire('Error', String(err.message || err), 'error'); })
+    .canvaImportSimpan(nlToken(), {
+      files: cvFiles, judul: v('cvJudul'), kelas: v('cvKelas'), jenis: v('cvJenis'),
+      maks: v('cvMaks'), pakaiSkor: pakaiSkor, kunci: kunci
+    });
+}
+</script>
